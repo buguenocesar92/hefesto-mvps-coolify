@@ -84,7 +84,7 @@ EOF
   formatos="$(grep -ohE '\{\{GEN:[^}]+\}\}' "$RAIZ/envs/"*.tpl | sed 's/^{{GEN://; s/}}$//' | sort -u)"
   for fmt in $formatos; do
     case "$fmt" in
-      hex64|hex32|hex96|b64-32|alnum24|bcrypt:*) : ;;
+      hex64|hex32|hex96|b64-32|alnum24|laravel|bcrypt:*|pbkdf2:*) : ;;
       *) echo "formato no soportado en plantillas: $fmt" >&2; return 1 ;;
     esac
   done
@@ -126,4 +126,62 @@ EOF
   esperadas_norm="$(printf '%s' "$esperadas" | xargs)"
   obtenidas_norm="$(printf '%s' "$obtenidas" | xargs)"
   [ "$esperadas_norm" = "$obtenidas_norm" ] || { echo "diferencia: esperadas=$esperadas_norm obtenidas=$obtenidas_norm" >&2; return 1; }
+}
+
+@test "{{HOST:<slug>}} se expande a <slug>.\$DOMINIO_BASE, también dentro de otro valor" {
+  printf 'PANEL_HOST={{HOST:panel-enlaces}}\nCORS={{URL}},https://{{HOST:panel-enlaces}}\n' > "$ENVS_DIR/demo.tpl"
+  out="$(render_env demo)"
+  echo "$out"
+  echo "$out" | jq -e '.data[] | select(.key=="PANEL_HOST") | .value == "panel-enlaces.hefesto-studio.cl"' >/dev/null
+  echo "$out" | jq -e '.data[] | select(.key=="CORS") | .value == "https://demo.hefesto-studio.cl,https://panel-enlaces.hefesto-studio.cl"' >/dev/null
+}
+
+@test "{{COPIA:VAR}} copia el valor ya resuelto de VAR (literal o generado)" {
+  cat > "$ENVS_DIR/demo.tpl" <<'EOF'
+A_USER=hefesto
+A_PASS={{GEN:hex64}}
+B_USER={{COPIA:A_USER}}
+B_PASS={{COPIA:A_PASS}}
+EOF
+  out="$(render_env demo)"
+  echo "$out" | jq -e '(.data | map({(.key): .value}) | add) as $m
+    | $m.B_USER == "hefesto" and $m.B_PASS == $m.A_PASS and ($m.A_PASS | test("^[0-9a-f]{64}$"))' >/dev/null
+}
+
+@test "{{COPIA:VAR}} falla si VAR no aparece antes en la plantilla" {
+  printf 'B={{COPIA:NO_EXISTE}}\n' > "$ENVS_DIR/demo.tpl"
+  run --separate-stderr render_env demo
+  [ "$status" -eq 1 ]
+  [[ "$stderr" == *"COPIA:NO_EXISTE"* ]]
+}
+
+@test "{{DB_PASSWORD}} es hex64 y es el mismo DB_PASSWORD guardado para la app" {
+  printf 'DB_PASSWORD={{DB_PASSWORD}}\nPOSTGRES_PASSWORD={{DB_PASSWORD}}\n' > "$ENVS_DIR/demo.tpl"
+  out="$(render_env demo)"
+  guardado="$(grep '^DB_PASSWORD=' "$HEFESTO_MVPS_ESTADO/demo.env" | cut -d= -f2-)"
+  echo "$out" | jq -e --arg g "$guardado" '(.data | map({(.key): .value}) | add) as $m
+    | $m.DB_PASSWORD == $g and $m.POSTGRES_PASSWORD == $g and ($g | test("^[0-9a-f]{64}$"))' >/dev/null
+}
+
+@test "laravel genera base64: más 32 bytes en base64" {
+  v="$(secreto demo APP_KEY laravel)"
+  [[ "$v" =~ ^base64:[A-Za-z0-9+/]{43}=$ ]]
+  [ "$(printf '%s' "${v#base64:}" | base64 -d | wc -c)" -eq 32 ]
+}
+
+@test "pbkdf2:<VAR_PLANO> da base64(salt32+pbkdf2_sha256(clave,salt,100000)) y guarda la clave plana" {
+  v="$(secreto vig SALTED_PASS pbkdf2:SALTED_PASS_PLANO)"
+  plano="$(grep '^SALTED_PASS_PLANO=' "$HEFESTO_MVPS_ESTADO/vig.env" | cut -d= -f2-)"
+  [ -n "$plano" ]
+  printf '%s\n%s\n' "$v" "$plano" | python3 -I -c 'import sys,base64,hashlib
+v,p=sys.stdin.read().split("\n")[:2]
+b=base64.b64decode(v)
+assert len(b)==64
+assert hashlib.pbkdf2_hmac("sha256",p.encode(),b[:32],100000)==b[32:]'
+}
+
+@test "bcrypt usa coste 12 y guarda la clave plana con el nombre pedido" {
+  h="$(secreto demo NR_ADMIN_HASH bcrypt:NR_ADMIN_PASSWORD)"
+  [[ "$h" == '$2y$12$'* ]]
+  grep -qE '^NR_ADMIN_PASSWORD=[A-Za-z0-9]{24}$' "$HEFESTO_MVPS_ESTADO/demo.env"
 }

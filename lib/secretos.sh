@@ -2,11 +2,11 @@
 # secretos.sh: generación idempotente de secretos por app y sustitución de marcadores
 # en plantillas envs/<slug>.tpl. Imprime JSON por stdout, listo para PATCH envs/bulk.
 # shellcheck shell=bash
-shopt -s extglob
 HTPASSWD="${HTPASSWD_BIN:-htpasswd}"
+PYTHON="${PYTHON_BIN:-python3}"
 
 # secreto <slug> <VAR> <formato>: emite a stdout el valor; lo guarda en $ESTADO_DIR/<slug>.env.
-# Formatos: hex64, hex32, hex96, b64-32, alnum24, bcrypt:<VAR_PLANO>.
+# Formatos: hex64, hex32, hex96, b64-32, alnum24, laravel, bcrypt:<VAR_PLANO>, pbkdf2:<VAR_PLANO>.
 secreto() {
   local slug="$1" var="$2" fmt="$3"
   local arch="$ESTADO_DIR/$slug.env"
@@ -27,11 +27,22 @@ secreto() {
     hex96) valor="$(openssl rand -hex 48)" ;;
     b64-32) valor="$(openssl rand -base64 32 | tr -d '\n=+/' | cut -c1-43)" ;;
     alnum24) valor="$(openssl rand -base64 48 | tr -dc 'A-Za-z0-9' | cut -c1-24)" ;;
+    laravel) valor="base64:$(openssl rand -base64 32)" ;;
+    pbkdf2:*)
+      local var_plano_p="${fmt#pbkdf2:}" plano_p sal
+      plano_p="$(secreto "$slug" "$var_plano_p" "alnum24")" || return 1
+      sal="$(openssl rand -hex 32)"
+      valor="$(printf '%s\n%s\n' "$plano_p" "$sal" | "$PYTHON" -I -c 'import sys,hashlib,base64
+p,s=sys.stdin.read().split("\n")[:2]
+s=bytes.fromhex(s)
+print(base64.b64encode(s+hashlib.pbkdf2_hmac("sha256",p.encode(),s,100000)).decode())')" || return 1
+      [ -n "$valor" ] || { error "pbkdf2 no generó valor"; return 1; }
+      ;;
     bcrypt:*)
       local var_plano="${fmt#bcrypt:}"
       local plano
       plano="$(secreto "$slug" "$var_plano" "alnum24")" || return 1
-      valor="$(printf '%s\n' "$plano" | "$HTPASSWD" -niB usuario | cut -d: -f2-)"
+      valor="$(printf '%s\n' "$plano" | "$HTPASSWD" -n -i -B -C 12 usuario | cut -d: -f2-)"
       [ -n "$valor" ] || { error "htpasswd no generó hash" >&2; return 1; }
       ;;
     *) error "formato inválido: $fmt"; return 1 ;;
@@ -55,14 +66,16 @@ expandir_marcador() {
   local slug="$1" var="$2" valor="$3" db_slug
   db_slug="${slug//-/_}"
   valor="${valor//\{\{HOST\}\}/${slug}.$DOMINIO_BASE}"
-  valor="${valor//\{\{HOST:[[:alnum:]-]*\}\}/\1.$DOMINIO_BASE}"
+  while [[ "$valor" =~ \{\{HOST:([a-z0-9-]+)\}\} ]]; do
+    valor="${valor//"${BASH_REMATCH[0]}"/"${BASH_REMATCH[1]}.$DOMINIO_BASE"}"
+  done
   valor="${valor//\{\{URL\}\}/https://${slug}.$DOMINIO_BASE}"
   valor="${valor//\{\{DB_HOST\}\}/${SUPABASE_DB_HOST:-supabase-db}}"
   valor="${valor//\{\{DB_NAME\}\}/mvp_${db_slug}}"
   valor="${valor//\{\{SUPABASE_URL\}\}/${SUPABASE_INTERNAL_URL:-http://supabase-kong:8000}}"
 
   while [[ "$valor" =~ \{\{DB_PASSWORD\}\} ]]; do
-    local dbp; dbp="$(secreto "$slug" DB_PASSWORD hex32)" || return 1
+    local dbp; dbp="$(secreto "$slug" DB_PASSWORD hex64)" || return 1
     valor="${valor/\{\{DB_PASSWORD\}\}/$dbp}"
   done
   while [[ "$valor" =~ \{\{GEN:([^}]+)\}\} ]]; do
@@ -109,6 +122,7 @@ render_env() {
 
   local pares=()
   local pendientes=()
+  local -A resueltos=()
   local linea raw var valor
   while IFS= read -r linea || [ -n "$linea" ]; do
     # quitar comentarios finales y espacios sobrantes
@@ -125,12 +139,20 @@ render_env() {
       printf 'pendiente: %s=%s\n' "$slug" "$var" >&2
       continue
     fi
+    while [[ "$valor" =~ \{\{COPIA:([A-Z][A-Z0-9_]*)\}\} ]]; do
+      local fuente="${BASH_REMATCH[1]}" marca="${BASH_REMATCH[0]}"
+      if [ -z "${resueltos[$fuente]+x}" ]; then
+        error "$var: {{COPIA:$fuente}} necesita que $fuente aparezca antes en $plantilla"; return 1
+      fi
+      valor="${valor//"$marca"/"${resueltos[$fuente]}"}"
+    done
     if ! expandir_marcador "$slug" "$var" "$valor" >/dev/null; then
       return 1
     fi
     local resuelto
     resuelto="$(expandir_marcador "$slug" "$var" "$valor")" || return 1
     pares+=("$var" "$resuelto")
+    resueltos["$var"]="$resuelto"
   done < "$plantilla"
 
   if [ "${#pendientes[@]}" -gt 0 ]; then
