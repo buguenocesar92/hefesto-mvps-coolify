@@ -133,7 +133,9 @@ for slug in "${slugs[@]}"; do
     n=$((n+1))
     sleep "$ESPERA_SONDEO"
     resp="$(api GET "/services/$supa_uuid/scheduled-tasks/$task_uuid/executions")" || continue
-    msg="$(printf '%s' "$resp" | jq -r '.message // ""')"
+    # El endpoint devuelve una lista de ejecuciones; tomar la última por created_at/id.
+    # Aceptar también un objeto suelto (compatibilidad): el .message se lee igual.
+    msg="$(printf '%s' "$resp" | jq -r 'if type=="array" then (sort_by(.created_at // .id) | last | .message // "") else (.message // "") end' 2>/dev/null)" || msg=""
     if [[ "$msg" == *"FIN_OK"* ]] && [[ "$msg" != *"ERROR"* ]] && [[ "$msg" != *"FATAL"* ]]; then
       estado="SQL_OK"; break
     fi

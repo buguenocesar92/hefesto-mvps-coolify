@@ -38,7 +38,7 @@ SQL
   responder POST /services/supabase-uuid-1/scheduled-tasks '{"uuid":"task-uuid-1"}'
   responder POST /services/supabase-uuid-1/scheduled-tasks/task-uuid-1/execute '{}'
   responder GET /services/supabase-uuid-1/scheduled-tasks/task-uuid-1/executions \
-    '{"status":"finished","message":"FIN_OK"}'
+    '[{"status":"success","message":"FIN_OK"}]'
   responder DELETE /services/supabase-uuid-1/scheduled-tasks/task-uuid-1 '{}'
   # Estado del uuid de Supabase.
   printf 'supabase-uuid-1\n' > "$ESTADO_DIR/supabase.uuid"
@@ -65,9 +65,9 @@ SQL
 }
 
 @test "execution con FIN_OK da SQL_OK; con ERROR da SQL_ERROR y sale 1" {
-  # Caso FIN_OK.
+  # Caso FIN_OK: el endpoint devuelve una LISTA de ejecuciones.
   responder GET /services/supabase-uuid-1/scheduled-tasks/task-uuid-1/executions \
-    '{"status":"finished","message":"FIN_OK"}'
+    '[{"status":"success","message":"FIN_OK"}]'
   run --separate-stderr "$RAIZ/aplicar-sql.sh" --apps pgapp --ejecutar
   echo "status=$status stderr=$stderr output=$output"
   [ "$status" -eq 0 ]
@@ -78,13 +78,23 @@ SQL
   responder POST /services/supabase-uuid-1/scheduled-tasks '{"uuid":"task-uuid-1"}'
   responder POST /services/supabase-uuid-1/scheduled-tasks/task-uuid-1/execute '{}'
   responder GET /services/supabase-uuid-1/scheduled-tasks/task-uuid-1/executions \
-    '{"status":"failed","message":"ERROR: relation does not exist"}'
+    '[{"status":"failed","message":"ERROR: relation does not exist"}]'
   responder DELETE /services/supabase-uuid-1/scheduled-tasks/task-uuid-1 '{}'
   run --separate-stderr "$RAIZ/aplicar-sql.sh" --apps pgapp --ejecutar
   echo "status=$status stderr=$stderr output=$output"
   [ "$status" -ne 0 ]
   [[ "$output" == *"SQL_ERROR"* ]]
   [[ "$output" == *"ERROR: relation does not exist"* ]]
+}
+
+@test "executions como objeto (compatibilidad) no rompe el bucle" {
+  # Si la API alguna vez devolviera un objeto, no debe fallar el bucle entero.
+  responder GET /services/supabase-uuid-1/scheduled-tasks/task-uuid-1/executions \
+    '{"status":"success","message":"FIN_OK"}'
+  run --separate-stderr "$RAIZ/aplicar-sql.sh" --apps pgapp --ejecutar
+  echo "status=$status stderr=$stderr output=$output"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"SQL_OK"* ]]
 }
 
 @test "el comando viaja en el cuerpo JSON, no en la URL, y no aparece en \$output ni en el log del stub" {
