@@ -102,10 +102,10 @@ for slug in "${slugs[@]}"; do
   # El comando viaja dentro del cuerpo JSON, no en la URL.
   cmd="$(printf "printf '%%s' '%s' | base64 -d | psql -U postgres -v ON_ERROR_STOP=1 -q 2>&1 | grep -E 'ERROR|FATAL' || true; echo FIN_OK" "$sql_b64")"
 
-  # 2a) Crear la task (enabled:false).
+  # 2a) Crear la task (enabled:false). El nombre incluye el slug para distinguir apps.
   task_body="$(mktemp "${TMPDIR:-/tmp}/hefesto_task_body.XXXXXX")"
-  jq -n --arg c "$cmd" --argjson t 600 \
-    '{name:("aplicar-sql-" + "X"), command:$c, frequency:"0 0 1 1 *", container:"supabase-db", timeout:$t, enabled:false}' \
+  jq -n --arg n "aplicar-sql-$slug" --arg c "$cmd" --argjson t 600 \
+    '{name:$n, command:$c, frequency:"0 0 1 1 *", container:"supabase-db", timeout:$t, enabled:false}' \
     > "$task_body"
   task_resp="$(api POST "/services/$supa_uuid/scheduled-tasks" "$task_body")" || {
     error "no se pudo crear la task para $slug"; rm -f "$task_body"; fallos=$((fallos+1)); continue; }

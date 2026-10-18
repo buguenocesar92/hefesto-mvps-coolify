@@ -62,6 +62,8 @@ SQL
   jq -e '.enabled == false' "$STUB_DIR/cuerpo_POST__services_supabase-uuid-1_scheduled-tasks_1" >/dev/null
   jq -e '.command | type == "string" and (contains("psql -U postgres") or contains("base64 -d"))' \
     "$STUB_DIR/cuerpo_POST__services_supabase-uuid-1_scheduled-tasks_1" >/dev/null
+  # El nombre de la task incluye el slug para distinguir apps en Coolify.
+  jq -e '.name == "aplicar-sql-pgapp"' "$STUB_DIR/cuerpo_POST__services_supabase-uuid-1_scheduled-tasks_1" >/dev/null
   grep -q '^curl POST /services/supabase-uuid-1/scheduled-tasks/task-uuid-1/execute$' "$STUB_LOG"
   grep -q '^curl GET /services/supabase-uuid-1/scheduled-tasks/task-uuid-1/executions$' "$STUB_LOG"
 }
