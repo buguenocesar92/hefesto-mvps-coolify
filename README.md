@@ -7,11 +7,19 @@ estado de despliegue en un directorio local.
 ## Requisitos
 
 - **VPN arriba** para llegar a la API de Coolify.
-- Token de Coolify en `~/.config/hefesto/coolify-token`, modo `0600`.
+- Token de Coolify en `~/.config/hefesto/coolify-token`, modo `0600`. Debe traer los
+  scopes `read`, `write`, `deploy` y **`read:sensitive`** (este último es obligatorio
+  para que `instalar-supabase.sh` pueda leer el `service_role`, el `anon` y la
+  contraseña de postgres del servicio Supabase de un clic). Un token con `write`
+  también puede ejecutar comandos en los contenedores mediante **scheduled tasks**,
+  así que hay que guardarlo como un secreto de root (no en Vaultwarden compartido ni
+  en scripts del repo).
 - (Obligatorio, apps que usan Supabase REST) clave de servicio de Supabase en
   `~/.config/hefesto/supabase-service-key`, modo `0600`.
 - (Apps con `{{SUPABASE_ANON_KEY}}`) clave anon en
   `~/.config/hefesto/supabase-anon-key`, modo `0600`.
+- (Apps con `{{RESEND_API_KEY}}`, SMTP) clave de Resend en
+  `~/.config/hefesto/resend.env`, modo `0600`. Formato `RESEND_API_KEY=re_...`.
 - (Apps con `{{ADMIN_EMAIL}}`) `HEFESTO_ADMIN_EMAIL=tu@correo` en el entorno.
 - `bats`, `jq`, `shellcheck`, `docker compose`, `curl`, `openssl`, `htpasswd`, `python3` en el
   PATH (los tests de `lib/*.sh` los necesitan).
@@ -20,17 +28,20 @@ estado de despliegue en un directorio local.
 ## Orden de uso
 
 ```bash
-# 1) Generar el SQL de supabase y aplicarlo dentro del contenedor supabase-db.
-./supabase-sql.sh --todas
-#   imprime la ruta de $ESTADO_DIR/supabase.sql y el conteo de bases/migraciones.
-#   aplicarlo:
-docker exec -i supabase-db psql -U postgres < "$HOME/.local/state/hefesto-mvps/supabase.sql"
+# 1) Crear (o reusar) el servicio Supabase de un clic en Coolify, fijar la red
+#    interna con las apps, configurar el SMTP de GoTrue con Resend, arrancar el
+#    servicio y dejar los secretos del servicio (service_role, anon, postgres) en
+#    archivos 0600. Con --dry-run imprime el plan sin tocar la API.
+./instalar-supabase.sh --dry-run
+./instalar-supabase.sh --ejecutar
 
-# 2) (Opcional) Regenerar las plantillas si apps.tsv cambió.
-tools/generar-plantillas.sh
-#   Revisar reporte.md para saber qué variables quedaron en {{PENDIENTE}}.
+# 2) Aplicar el SQL por app con una scheduled task por base. Con --dry-run imprime
+#    el plan; con --ejecutar crea la task (container=supabase-db, enabled=false),
+#    la ejecuta y registra SQL_OK/SQL_ERROR en $ESTADO_DIR/sql.tsv (0600).
+./aplicar-sql.sh --todas --dry-run
+./aplicar-sql.sh --todas --ejecutar
 
-# 3) Desplegar por grupo. Las pesadas se quedan CREADA_DETENIDA hasta el --publicar.
+# 3) Desplegar las apps por grupo. Las pesadas se quedan CREADA_DETENIDA hasta el --publicar.
 ./desplegar.sh --grupo liviana --dry-run          # siempre primero, sin tocar la API
 ./desplegar.sh --grupo liviana --ejecutar
 ./desplegar.sh --grupo media   --ejecutar
@@ -76,9 +87,15 @@ Todo se persiste en `~/.local/state/hefesto-mvps/` (override con
   mano antes de `supabase-sql.sh` si el kit exige hex64. Es idempotente: la segunda
   llamada devuelve el mismo valor.
 - `apps.tsv` (0600): `slug uuid estado url fecha` por app tras cada corrida.
+- `supabase.uuid` (0600): uuid del servicio Supabase de un clic en Coolify; lo crea
+  `instalar-supabase.sh --ejecutar` y lo reusa en corridas siguientes.
+- `supabase-postgres.pass` (0600): `SERVICE_PASSWORD_POSTGRES` del servicio Supabase.
 - `compose.XXXXXX/`, `sql.XXXXXX/`: temporales para validar compose y armar SQL (se
   borran al cerrar, modo 0700).
-- `supabase.sql` (0600): generado por `supabase-sql.sh`.
+- `supabase.sql` (0600): concatenado, generado por `supabase-sql.sh` (compatibilidad).
+- `sql/<slug>.sql` (0600): uno por app, generado por `supabase-sql.sh --por-app`. Es
+  lo que `aplicar-sql.sh` ejecuta dentro del contenedor `supabase-db-<uuid>`.
+- `sql.tsv` (0600): `slug estado fecha` por app tras `aplicar-sql.sh --ejecutar`.
 - `verificacion.tsv` (0600): salida de `verificar.sh` con la clasificación
   `responde`/`cae`.
 
@@ -89,10 +106,13 @@ y habría que regenerarlas, lo que invalida los deploys anteriores).
 ## Qué hace `tools/generar-plantillas.sh`
 
 Lee `apps.tsv` y produce `envs/<slug>.tpl` (54 archivos) con la tabla de deducción
-del plan (URL/HOST, SMTP apagado, DB_*, *_VOLUME, *_PUBLIC_URL, etc.). Las
-variables que la tabla no resuelve quedan como `{{PENDIENTE}}` y se anotan en
-`reporte.md`. `render_env` las anuncia y `desplegar.sh` marca la app como
-`NECESITA_DATOS` sin tocar la API.
+del plan (URL/HOST, DB_*, *_VOLUME, *_PUBLIC_URL, SMTP con Resend, etc.). Las
+plantillas que piden algún campo SMTP se completan con `smtp.resend.com:465`, usuario
+`resend` y contraseña `{{RESEND_API_KEY}}` (que `render_env` lee de `$RESEND_ENV_FILE`).
+Excepciones: `marketing` (Mautic) usa `MAILER_DSN=null://null` y `boletines`
+(listmonk) usa `DELIVERY_ENABLED=false`. Las variables que la tabla no resuelve
+quedan como `{{PENDIENTE}}` y se anotan en `reporte.md`. `render_env` las anuncia y
+`desplegar.sh` marca la app como `NECESITA_DATOS` sin tocar la API.
 
 ## Estado de una app
 
@@ -115,7 +135,11 @@ bats tests/coolify.bats              # 5 ok  — cliente de Coolify + token
 bats tests/validar-compose.bats      # 10 ok — validar-compose.sh (docker compose real; skip sin docker)
 bats tests/secretos.bats             # 15 ok — lib/secretos.sh + render de las 54 plantillas
 bats tests/desplegar.bats            # 11 ok — desplegar.sh (dry, ejecutar, publicar, NECESITA_DATOS)
-bats tests/supabase-sql.bats         # 4 ok  — supabase-sql.sh (rol del kit, DB_PASSWORD hex64)
+bats tests/red-interna.bats          # 4 ok  — connect_to_docker_network + DB_HOST/SUPABASE_URL internos
+bats tests/instalar-supabase.bats    # 6 ok  — instalar-supabase.sh (servicio, red, SMTP, secretos 0600)
+bats tests/aplicar-sql.bats          # 7 ok  — aplicar-sql.sh (scheduled task, idempotencia, sql.tsv)
+bats tests/supabase-sql.bats         # 4 ok  — supabase-sql.sh (rol del kit, idempotencia, DB_PASSWORD hex64)
+bats tests/plantillas-resend.bats    # 7 ok  — SMTP con Resend en las plantillas
 bats tests/verificar.bats            # 1 ok  — verificar.sh
 bats tests/generar-plantillas.bats   # 7 ok  — tabla de deducción del generador
 tools/contar-renderizables.sh        # renderizables=52, no_renderizables=ordenia,respaldos
