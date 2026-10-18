@@ -105,6 +105,23 @@ setup() {
   ! grep -q '^SMTP_READY=' "$ENVS_DIR/pgsin.tpl"
 }
 
+@test "la asignacion de SMTP_USERNAME se deriva de apps.tsv (SMTP_USERNAME o *_SMTP_USER_NAME), no de lista fija (7.9)" {
+  # Apps que declaran SMTP_USERNAME en variables_obligatorias -> SMTP_USERNAME
+  for slug in firmas ideas publicaciones; do
+    grep -qx '^SMTP_USERNAME=resend$' "$RAIZ/envs/$slug.tpl" || {
+      echo "$slug debería tener SMTP_USERNAME=resend" >&2; return 1; }
+    ! grep -q '^SMTP_USER=' "$RAIZ/envs/$slug.tpl" || {
+      echo "$slug no debería tener SMTP_USER=..." >&2; return 1; }
+  done
+  # Apps con SMTP_USER (no SMTP_USERNAME) -> SMTP_USER
+  for slug in eventos formularios reuniones; do
+    grep -qx '^SMTP_USER=resend$' "$RAIZ/envs/$slug.tpl" || {
+      echo "$slug debería tener SMTP_USER=resend" >&2; return 1; }
+    ! grep -q '^SMTP_USERNAME=' "$RAIZ/envs/$slug.tpl" || {
+      echo "$slug no debería tener SMTP_USERNAME=..." >&2; return 1; }
+  done
+}
+
 @test "solo las 9 apps con SMTP tienen SMTP_READY; las de opcional y no no (7.8)" {
   # Cargar apps.tsv real para contar las que necesitan SMTP.
   apps_obligatorio="$(awk -F'\t' 'NR>1 && $11=="obligatorio" {print $1}' "$RAIZ/apps.tsv" | sort -u | wc -l)"

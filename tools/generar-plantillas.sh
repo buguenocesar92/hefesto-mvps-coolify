@@ -272,10 +272,13 @@ necesita_smtp="$(printf '%s\n' "$linea" | cut -f11)"
   if [ "$pide_smtp_flag" = "1" ] && [ "$slug" != "marketing" ]; then
     declarar_y_emitir "SMTP_HOST" "smtp.resend.com"
     declarar_y_emitir "SMTP_PORT" "465"
-    case "$slug" in
-      ideas|firmas|publicaciones) declarar_y_emitir "SMTP_USERNAME" "resend" ;;
-      *) declarar_y_emitir "SMTP_USER" "resend" ;;
-    esac
+    # Resolver SMTP_USERNAME vs SMTP_USER desde apps.tsv: gana SMTP_USERNAME (o *_SMTP_USER_NAME)
+    # si la app lo declara en variables_obligatorias; si no, SMTP_USER.
+    if [ -n "$vars" ] && printf '%s' "$vars" | grep -qE '(^|,)(SMTP_USERNAME|[A-Z0-9_]+_SMTP_USER_NAME)(,|$)'; then
+      declarar_y_emitir "SMTP_USERNAME" "resend"
+    else
+      declarar_y_emitir "SMTP_USER" "resend"
+    fi
     declarar_y_emitir "SMTP_PASSWORD" "{{RESEND_API_KEY}}"
   fi
 
