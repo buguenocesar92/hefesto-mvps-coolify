@@ -147,6 +147,7 @@ while IFS= read -r linea || [ -n "$linea" ]; do
   emitir_cabecera
   declare -A ya=() ya_publicar=() fmt_secreto=() fmt_invalido=()
 pide_smtp_flag=0
+necesita_smtp="$(printf '%s\n' "$linea" | cut -f11)"
 
   # Columna 14 (secretos_generables) → formato normalizado o inválido, por variable.
   if [ -n "$secretos" ]; then
@@ -279,6 +280,8 @@ pide_smtp_flag=0
   fi
 
 # SMTP con Resend (marketing y boletines siguen apagados para no enviar correo masivo desde MVP).
+  # Si la app tiene necesita_smtp=no u opcional, no añadir SMTP_READY (no lo requiere estrictamente);
+  # si lo declaró explícito en variables_obligatorias, ya quedó emitido arriba.
   case "$slug" in
     marketing)
       sobrescribir_valor "MAILER_DSN" "null://null"
@@ -287,7 +290,8 @@ pide_smtp_flag=0
       sobrescribir_valor "DELIVERY_ENABLED" "false"
       sobrescribir_valor "SMTP_READY" "false" ;;
     *) if [ "$pide_smtp_flag" = "1" ]; then sobrescribir_valor "SMTP_READY" "true"
-       else sobrescribir_valor "SMTP_READY" "false"; fi ;;
+       elif [ "$necesita_smtp" = "obligatorio" ]; then sobrescribir_valor "SMTP_READY" "false"
+       fi ;;
   esac
   declarar_y_emitir "INITIAL_SETUP_COMPLETE" "false"
   if [ "$alta_privada" = "si" ]; then emitir_publicar "INITIAL_SETUP_COMPLETE"; fi

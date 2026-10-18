@@ -99,6 +99,36 @@ setup() {
   ! grep -q '^# publicar:' "$ENVS_DIR/nodo.tpl"
 }
 
+@test "apps con necesita_smtp=no no llevan SMTP_READY (no usan SMTP en absoluto)" {
+  # pgconv y pgsin tienen necesita_smtp=no y no declaran SMTP_HOST en vars_obligatorias.
+  ! grep -q '^SMTP_READY=' "$ENVS_DIR/pgconv.tpl"
+  ! grep -q '^SMTP_READY=' "$ENVS_DIR/pgsin.tpl"
+}
+
+@test "solo las 9 apps con SMTP tienen SMTP_READY; las de opcional y no no (7.8)" {
+  # Cargar apps.tsv real para contar las que necesitan SMTP.
+  apps_obligatorio="$(awk -F'\t' 'NR>1 && $11=="obligatorio" {print $1}' "$RAIZ/apps.tsv" | sort -u | wc -l)"
+  [ "$apps_obligatorio" -eq 9 ]
+  # Conteo de plantillas con SMTP_READY (true o false) en el repo real, descontando
+  # las dos excepciones explícitas (marketing y boletines, opcional + false a propósito).
+  total="$(grep -l "^SMTP_READY=" "$RAIZ/envs/"*.tpl | wc -l)"
+  marketing_boletines=2
+  [ "$((total - marketing_boletines))" -eq "$apps_obligatorio" ]
+  # Cada plantilla con SMTP_READY debe corresponder a una app con necesita_smtp=obligatorio
+  # (excepto marketing y boletines).
+  while IFS= read -r tpl; do
+    slug="$(basename "$tpl" .tpl)"
+    case "$slug" in marketing|boletines) continue ;; esac
+    smtp="$(awk -F'\t' -v s="$slug" 'NR>1 && $1==s {print $11}' "$RAIZ/apps.tsv")"
+    [ "$smtp" = "obligatorio" ] || { echo "$slug tiene SMTP_READY pero necesita_smtp=$smtp" >&2; return 1; }
+  done < <(grep -l "^SMTP_READY=" "$RAIZ/envs/"*.tpl)
+  # Inverso: cada app con necesita_smtp=obligatorio debe tener SMTP_READY en su plantilla.
+  while IFS= read -r slug; do
+    grep -q "^SMTP_READY=" "$RAIZ/envs/$slug.tpl" || {
+      echo "$slug (obligatorio) no tiene SMTP_READY" >&2; return 1; }
+  done < <(awk -F'\t' 'NR>1 && $11=="obligatorio" {print $1}' "$RAIZ/apps.tsv")
+}
+
 @test "plantillas reales: las 20 supabase-pg usan {{DB_PASSWORD}} y secretos lleva PUBLIC_URL con barra final" {
   n=0
   while IFS=$'\t' read -r slug bd; do
