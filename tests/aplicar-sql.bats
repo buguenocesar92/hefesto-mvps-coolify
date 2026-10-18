@@ -121,8 +121,18 @@ SQL
   # Base: envoltorio \gexec.
   grep -q "SELECT 'CREATE DATABASE mvp_pgapp' WHERE NOT EXISTS" "$sql_file"
   grep -q '\\gexec' "$sql_file"
-  # Rol: IF NOT EXISTS dentro de DO $$.
-  grep -q 'IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname=' "$sql_file"
+  # Rol: condicional psql (\gset + \if + \endif), no DO $$.
+  grep -qF 'crear_rol \gset' "$sql_file"
+  grep -qF '\if :crear_rol' "$sql_file"
+  grep -qF '\endif' "$sql_file"
+  # Ningún bloque DO $$ con marcadores :'app_user'/ :'app_pass' dentro.
+  awk '
+    BEGIN { n = 0; dentro = 0 }
+    /DO \$\$/ { dentro = 1; next }
+    /END \$\$/ { dentro = 0; next }
+    dentro == 1 && (/:\047app_user\047/ || /:\047app_pass\047/) { n++ }
+    END { exit (n == 0 ? 0 : 1) }
+  ' "$sql_file"
 }
 
 @test "registra el estado final en \$ESTADO_DIR/sql.tsv (slug, estado, fecha)" {

@@ -79,13 +79,12 @@ generar_bloque_app() {
             for f in "$sql_root"/01-*.sql; do
               [ -f "$f" ] || continue
               echo "-- origen: $repo/sql/$(basename "$f")"
-              # Envolver el kit en DO $$ BEGIN IF NOT EXISTS (rol) … PERFORMAR BYPASSRLS … END IF; END $$;
-              # para que un CREATE ROLE/USER no falle si ya existe.
-              echo "DO \$\$ BEGIN"
-              echo "  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname='$db_user') THEN"
-              sed -E "s/\\\\:'app_user\\\\'/'${db_user}'/g; s/\\\\:'app_pass\\\\'/'${db_pass}'/g" "$f"
-              echo "  END IF;"
-              echo "END \$\$;"
+              # Idempotente: solo crear el rol si no existe. psql expande :'app_user'/ :'app_pass'
+              # solo fuera de bloques $$ (PL/pgSQL), por eso usamos \gset + \if + \endif en vez de DO $$.
+              printf '%s\n' "SELECT NOT EXISTS (SELECT FROM pg_roles WHERE rolname = :'app_user') AS crear_rol \\gset"
+              printf '%s\n' "\\if :crear_rol"
+              cat "$f"
+              printf '%s\n' "\\endif"
               echo ""
             done
           fi

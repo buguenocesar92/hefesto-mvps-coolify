@@ -74,3 +74,23 @@ SQL
   [[ "$clave" =~ ^[0-9a-f]{64}$ ]]
   grep -qxF "\\set app_pass '$clave'" "$ESTADO_DIR/supabase.sql"
 }
+
+@test "envoltorio idempotente del rol usa psql condicional y deja :'app_user'/:'app_pass' fuera de DO" {
+  run --separate-stderr "$RAIZ/supabase-sql.sh" --apps pgapp
+  [ "$status" -eq 0 ]
+  sql="$(echo "$output" | tail -2 | head -1)"
+  [ -f "$sql" ]
+  # El chequeo de rol debe usar psql condicional (\gset + \if), no DO $$.
+  grep -qF 'crear_rol \gset' "$sql"
+  grep -qF '\if :crear_rol' "$sql"
+  grep -qF '\endif' "$sql"
+  # Si quedara DO $$, las variables :'app_user'/:'app_pass' caerían dentro y psql
+  # no las sustituiría. Cualquier bloque DO $$ debe estar vacío de esos marcadores.
+  awk '
+    BEGIN { n = 0; dentro = 0 }
+    /DO \$\$/ { dentro = 1; next }
+    /END \$\$/ { dentro = 0; next }
+    dentro == 1 && (/:\047app_user\047/ || /:\047app_pass\047/) { n++ }
+    END { exit (n == 0 ? 0 : 1) }
+  ' "$sql"
+}
