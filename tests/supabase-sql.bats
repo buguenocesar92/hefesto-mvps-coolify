@@ -94,3 +94,25 @@ SQL
     END { exit (n == 0 ? 0 : 1) }
   ' "$sql"
 }
+
+@test "el contenido de sql/01-*.sql del kit aparece byte por byte dentro del envoltorio (7.1)" {
+  # Kit con varias sentencias y \:'app_user' literal: debe preservarse tal cual
+  cat > "$REPOS_DIR/hefesto-pgapp/sql/01-rol.sql" <<'SQL'
+-- crea el rol de la app
+CREATE ROLE :'app_user' LOGIN PASSWORD :'app_pass';
+GRANT CONNECT ON DATABASE mvp_pgapp TO :'app_user';
+GRANT USAGE ON SCHEMA public TO :'app_user';
+SQL
+  ( cd "$REPOS_DIR/hefesto-pgapp" && git add . && git commit -q -m rol-con-grants )
+  run --separate-stderr "$RAIZ/supabase-sql.sh" --apps pgapp
+  [ "$status" -eq 0 ]
+  sql="$(echo "$output" | tail -2 | head -1)"
+  [ -f "$sql" ]
+  # Extraer lo que va entre \if :crear_rol y \endif y comparar byte a byte
+  awk '
+    /\\if :crear_rol/ { capt=1; next }
+    /\\endif/ { capt=0; next }
+    capt==1 { print }
+  ' "$sql" > "$BATS_TEST_TMPDIR/extraido.sql"
+  diff -u "$REPOS_DIR/hefesto-pgapp/sql/01-rol.sql" "$BATS_TEST_TMPDIR/extraido.sql"
+}
