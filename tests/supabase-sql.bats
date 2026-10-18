@@ -54,3 +54,23 @@ SQL
   [[ "$output" != *"secreto-privado-XYZ"* ]]
   [[ "$stderr" != *"secreto-privado-XYZ"* ]]
 }
+
+@test "usa en \\set app_user el rol literal que crea el kit" {
+  cat > "$REPOS_DIR/hefesto-pgapp/sql/01-rol.sql" <<'SQL'
+CREATE ROLE fider_app LOGIN PASSWORD :'app_pass';
+SQL
+  ( cd "$REPOS_DIR/hefesto-pgapp" && git add . && git commit -q -m rol-literal )
+  run --separate-stderr "$RAIZ/supabase-sql.sh" --apps pgapp
+  echo "status=$status stderr=$stderr"
+  [ "$status" -eq 0 ]
+  grep -qxF "\\set app_user 'fider_app'" "$ESTADO_DIR/supabase.sql"
+}
+
+@test "con CREATE ROLE :'app_user' usa la convención mvp_<slug>_app y app_pass es el DB_PASSWORD hex64" {
+  run --separate-stderr "$RAIZ/supabase-sql.sh" --apps pgapp
+  [ "$status" -eq 0 ]
+  grep -qxF "\\set app_user 'mvp_pgapp_app'" "$ESTADO_DIR/supabase.sql"
+  clave="$(grep '^DB_PASSWORD=' "$ESTADO_DIR/pgapp.env" | cut -d= -f2-)"
+  [[ "$clave" =~ ^[0-9a-f]{64}$ ]]
+  grep -qxF "\\set app_pass '$clave'" "$ESTADO_DIR/supabase.sql"
+}

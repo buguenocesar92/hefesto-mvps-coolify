@@ -61,8 +61,13 @@ while IFS= read -r linea || [ -n "$linea" ]; do
   case "$bd" in
     supabase-pg)
       db_name="mvp_${slug//-/_}"
-      db_user="mvp_${slug//-/_}_app"
-      db_pass="$(secreto "$slug" DB_PASSWORD hex32)"
+      if rol_linea="$(rol_bd_kit "$repo" "$base_dir" "$slug")"; then
+        db_user="${rol_linea%%$'\t'*}"
+      else
+        db_user="mvp_${slug//-/_}_app"
+        printf 'aviso: %s: no se pudo leer el rol del kit (rama coolify, sql/01-*.sql); uso %s\n' "$slug" "$db_user" >&2
+      fi
+      db_pass="$(secreto "$slug" DB_PASSWORD hex64)"
       {
         echo "CREATE DATABASE $db_name;"
         echo "\\connect $db_name"
