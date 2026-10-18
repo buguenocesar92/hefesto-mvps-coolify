@@ -86,8 +86,15 @@ supa_uuid="$(cat "$SUPABASE_UUID_FILE")"
   chmod 600 "$SQL_TSV" 2>/dev/null || true
 )
 
-# 1) Generar todos los SQL por app.
-"$RAIZ_LIB/supabase-sql.sh" --todas --por-app >/dev/null
+# 1) Generar el SQL por app. Solo --todas si no hubo selección; con --apps a,b,
+# pasamos esa selección para no exigir todos los repos clonados ni escribir SQL
+# con contraseñas de apps que no se pidieron.
+if [ "$todas" -eq 1 ]; then
+  "$RAIZ_LIB/supabase-sql.sh" --todas --por-app >/dev/null
+else
+  apps_csv="$(IFS=,; printf '%s' "${slugs[*]}")"
+  "$RAIZ_LIB/supabase-sql.sh" --apps "$apps_csv" --por-app >/dev/null
+fi
 
 # 2) Por cada app, crear la scheduled task, ejecutarla, esperar y borrar.
 fallos=0

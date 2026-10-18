@@ -165,3 +165,13 @@ SQL
   grep -q 'SQL_OK' "$ESTADO_DIR/sql.tsv"
   [ "$(stat -c %a "$ESTADO_DIR/sql.tsv")" = "600" ]
 }
+
+@test "con --apps solo genera SQL de las apps pedidas, no de todas" {
+  # Sin responder el POST scheduled-tasks para restapp, ese archivo no debe existir
+  # ni intentar crearse: aplicar-sql debe respetar la selección.
+  run --separate-stderr "$RAIZ/aplicar-sql.sh" --apps pgapp --ejecutar
+  echo "status=$status stderr=$stderr output=$output"
+  [ "$status" -eq 0 ]
+  [ -f "$ESTADO_DIR/sql/pgapp.sql" ]
+  [ ! -f "$ESTADO_DIR/sql/restapp.sql" ]
+}
