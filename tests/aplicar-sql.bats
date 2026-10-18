@@ -102,19 +102,24 @@ SQL
 }
 
 @test "el comando viaja en el cuerpo JSON, no en la URL, y no aparece en \$output ni en el log del stub" {
-  # Sembrar una clave conocida en el SQL: usar DB_PASSWORD generado por secreto.
-  printf 'DB_PASSWORD=secreto-privado-XYZ\n' > "$ESTADO_DIR/pgapp.env"
+  # Cargar render_env para resolver la plantilla real y obtener el DB_PASSWORD efectivo.
+  source "$RAIZ/lib/comun.sh"
+  source "$RAIZ/lib/secretos.sh"
+  # Plantilla temporal con DB_PASSWORD + DOMINIO_BASE; usa el mismo slug del test (pgapp).
+  ENVS_DIR="$BATS_TEST_TMPDIR/envs"
+  mkdir -p "$ENVS_DIR"
+  printf 'DOMAIN={{HOST}}\nDB_PASSWORD={{DB_PASSWORD}}\nDB_NAME={{DB_NAME}}\n' > "$ENVS_DIR/pgapp.tpl"
+  json="$(ENVS_DIR="$ENVS_DIR" render_env pgapp)"
+  pass="$(printf '%s' "$json" | jq -r '.data[] | select(.key=="DB_PASSWORD") | .value')"
+  [[ "$pass" =~ ^[0-9a-f]{64}$ ]]
   run --separate-stderr "$RAIZ/aplicar-sql.sh" --apps pgapp --ejecutar
   echo "status=$status stderr=$stderr output=$output"
   [ "$status" -eq 0 ]
   # El cuerpo del POST scheduled-tasks contiene el comando (con base64 del SQL).
   jq -e '.command | contains("psql -U postgres -v ON_ERROR_STOP=1")' \
     "$STUB_DIR/cuerpo_POST__services_supabase-uuid-1_scheduled-tasks_1" >/dev/null
-  # Recuperar el valor REAL de la clave y comprobar que no aparece en ningún lado
+  # El DB_PASSWORD resuelto por la plantilla no debe aparecer en ningún lado
   # (el SQL viaja en base64; un grep del valor en claro sobre el body no probaría nada).
-  # shellcheck source=lib/secretos.sh
-  source "$RAIZ/lib/secretos.sh"
-  pass="$(secreto pgapp DB_PASSWORD hex64)"
   [[ "$output" != *"$pass"* ]]
   [[ "$stderr" != *"$pass"* ]]
   ! grep -qF "$pass" "$STUB_LOG"
