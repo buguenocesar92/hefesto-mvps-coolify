@@ -3,7 +3,7 @@
 # App: radar  bd=supabase-pg  grupo=liviana  alta_privada=si
 PUBLIC_URL={{URL}}
 DB_HOST={{DB_HOST}}
-DB_PASSWORD={{GEN:hex64}}
+DB_PASSWORD={{DB_PASSWORD}}
 SUPABASE_DEDICATED_CONFIRMED=true
 SUPABASE_DATA_API_DISABLED=true
 ADMIN_PASSWORD={{GEN:hex64}}

@@ -2,7 +2,7 @@
 # Regenerar con tools/generar-plantillas.sh si cambia apps.tsv.
 # App: metricas  bd=supabase-pg  grupo=liviana  alta_privada=si
 DB_HOST={{DB_HOST}}
-DB_PASSWORD={{GEN:hex64}}
+DB_PASSWORD={{DB_PASSWORD}}
 APP_SECRET={{GEN:hex64}}
 TWO_FACTOR_ENCRYPTION_KEY={{GEN:hex64}}
 SUPABASE_DEDICATED_CONFIRMED=true

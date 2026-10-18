@@ -3,7 +3,7 @@
 # App: academia  bd=supabase-pg  grupo=pesada  alta_privada=si
 MOODLE_URL={{URL}}
 DB_HOST={{DB_HOST}}
-DB_PASSWORD={{GEN:hex64}}
+DB_PASSWORD={{DB_PASSWORD}}
 DB_NAME={{DB_NAME}}
 DB_SSLMODE=disable
 SUPABASE_DEDICATED_CONFIRMED=true

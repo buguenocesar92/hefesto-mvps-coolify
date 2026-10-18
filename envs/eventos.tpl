@@ -3,7 +3,7 @@
 # App: eventos  bd=supabase-pg  grupo=pesada  alta_privada=si
 PUBLIC_URL={{URL}}
 DB_HOST={{DB_HOST}}
-DB_PASSWORD={{GEN:hex64}}
+DB_PASSWORD={{DB_PASSWORD}}
 DJANGO_SECRET={{GEN:hex64}}
 SUPABASE_DEDICATED_CONFIRMED=true
 SUPABASE_DATA_API_DISABLED=true

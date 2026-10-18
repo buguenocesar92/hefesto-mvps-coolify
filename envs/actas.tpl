@@ -3,7 +3,7 @@
 # App: actas  bd=supabase-pg  grupo=liviana  alta_privada=si
 DOMAIN={{HOST}}
 DB_HOST={{DB_HOST}}
-DB_PASSWORD={{GEN:hex64}}
+DB_PASSWORD={{DB_PASSWORD}}
 SESSION_SECRET={{GEN:hex64}}
 DB_NAME={{DB_NAME}}
 DB_SSLMODE=disable

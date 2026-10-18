@@ -2,7 +2,7 @@
 # Regenerar con tools/generar-plantillas.sh si cambia apps.tsv.
 # App: avisos  bd=supabase-pg  grupo=liviana  alta_privada=si
 DB_HOST={{DB_HOST}}
-DB_PASSWORD={{GEN:hex64}}
+DB_PASSWORD={{DB_PASSWORD}}
 PUBLIC_URL={{URL}}
 SUPABASE_DEDICATED_CONFIRMED=true
 SUPABASE_DATA_API_DISABLED=true

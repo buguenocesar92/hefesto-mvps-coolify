@@ -3,6 +3,5 @@
 # App: transferencias  bd=sqlite  grupo=liviana  alta_privada=si
 INITIAL_SETUP_COMPLETE=false
 # publicar: INITIAL_SETUP_COMPLETE=true
-# publicar: INITIAL_SETUP_COMPLETE=true
 APP_URL={{URL}}
 APP_HOST={{HOST}}

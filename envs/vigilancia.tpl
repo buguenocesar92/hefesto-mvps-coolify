@@ -2,7 +2,7 @@
 # Regenerar con tools/generar-plantillas.sh si cambia apps.tsv.
 # App: vigilancia  bd=sqlite  grupo=liviana  alta_privada=no
 PUBLIC_URL={{URL}}
-SALTED_PASS={{GEN:hex32}}
+SALTED_PASS={{GEN:pbkdf2:SALTED_PASS_PLANO}}
 SMTP_READY=false
 INITIAL_SETUP_COMPLETE=false
 APP_URL={{URL}}

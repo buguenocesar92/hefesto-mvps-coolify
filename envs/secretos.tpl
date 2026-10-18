@@ -1,9 +1,9 @@
 # Plantilla generada para hefesto-mvps-coolify.
 # Regenerar con tools/generar-plantillas.sh si cambia apps.tsv.
 # App: secretos  bd=supabase-pg  grupo=liviana  alta_privada=no
-PUBLIC_URL={{URL}}
+PUBLIC_URL={{URL}}/
 DB_HOST={{DB_HOST}}
-DB_PASSWORD={{GEN:hex64}}
+DB_PASSWORD={{DB_PASSWORD}}
 BASIC_AUTH_USER=hefesto
 BASIC_AUTH_HASH={{GEN:bcrypt:BASIC_AUTH_PASSWORD}}
 SUPABASE_DEDICATED_CONFIRMED=true

@@ -3,7 +3,7 @@
 # App: tareas  bd=supabase-pg  grupo=liviana  alta_privada=si
 PUBLIC_URL={{URL}}
 DB_HOST={{DB_HOST}}
-DB_PASSWORD={{GEN:hex64}}
+DB_PASSWORD={{DB_PASSWORD}}
 SERVICE_SECRET={{GEN:hex96}}
 SUPABASE_DEDICATED_CONFIRMED=true
 SUPABASE_DATA_API_DISABLED=true

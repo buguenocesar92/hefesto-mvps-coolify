@@ -3,7 +3,7 @@
 # App: reuniones  bd=supabase-pg  grupo=media  alta_privada=si
 PUBLIC_URL={{URL}}
 DB_HOST={{DB_HOST}}
-DB_PASSWORD={{GEN:hex64}}
+DB_PASSWORD={{DB_PASSWORD}}
 SECRET_PASSWORD={{GEN:hex64}}
 SUPPORT_EMAIL={{ADMIN_EMAIL}}
 NOREPLY_EMAIL=no-reply@hefesto-studio.cl

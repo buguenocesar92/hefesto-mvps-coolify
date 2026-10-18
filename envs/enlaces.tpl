@@ -3,8 +3,8 @@
 # App: enlaces  bd=supabase-pg  grupo=liviana  alta_privada=si
 COMPOSE_PROJECT_NAME=mvp-enlaces
 POSTGRES_HOST={{DB_HOST}}
-POSTGRES_USERNAME=mvp_enlaces_app
-POSTGRES_PASSWORD={{GEN:hex64}}
+POSTGRES_USERNAME=shlink_app
+POSTGRES_PASSWORD={{DB_PASSWORD}}
 LINKS_HOST={{HOST}}
 PANEL_HOST={{HOST:panel-enlaces}}
 SUPABASE_DEDICATED_CONFIRMED=true
