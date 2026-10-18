@@ -1,20 +1,45 @@
 #!/usr/bin/env bash
 # stub para docker compose config --format json.
-# Devuelve un JSON de un servicio que refleja los flags problemáticos que estén en
-# el compose pasado con `-f <archivo>`, para que validar-compose.sh rechace lo correcto
-# en los tests. Cuando el archivo no existe, devuelve un compose válido.
+# Refleja los campos que validar-compose.sh necesita ver rechazados.
 archivo=""
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    -f) archivo="$2"; shift 2 ;;
-    config|--project-directory|--no-interpolate|--format|json|compose|-*) shift ;;
-    *) shift ;;
-  esac
-done
-priv=""
-sock=""
+while [[ $# -gt 0 ]]; do case "$1" in
+  -f) archivo="$2"; shift 2 ;;
+  config|--project-directory|--no-interpolate|--format|json|compose|-*) shift ;;
+  *) shift ;;
+esac; done
+
+camp=""
+vol_array='[]'
+add_vol() {
+  if [ "$vol_array" = '[]' ]; then vol_array="[{\"type\":\"bind\",\"source\":\"$1\",\"target\":\"$2\"}]"
+  else vol_array="${vol_array%]},{\"type\":\"bind\",\"source\":\"$1\",\"target\":\"$2\"}]"
+  fi
+}
 if [ -n "$archivo" ] && [ -f "$archivo" ]; then
-  grep -q "privileged: true" "$archivo" && priv=',"privileged":true'
-  grep -q 'docker.sock' "$archivo" && sock=',"volumes":["/var/run/docker.sock:/var/run/docker.sock"]'
+  # Si el servicio tiene profiles, se ignora — el stub no emite campos problemáticos
+  # aunque los tenga (modela "el servicio no se valida").
+  if grep -q "profiles:" "$archivo"; then
+    :
+  else
+    grep -q "privileged: true" "$archivo" && camp="${camp}\"privileged\":true,"
+    grep -qE "network_mode:[[:space:]]*(host|container:)" "$archivo" && camp="${camp}\"network_mode\":\"host\","
+    grep -q "pid: host" "$archivo" && camp="${camp}\"pid\":\"host\","
+    grep -q "ipc: host" "$archivo" && camp="${camp}\"ipc\":\"host\","
+    grep -qE "^[[:space:]]*ports:" "$archivo" && camp="${camp}\"ports\":[\"127.0.0.1:3080:3000\"],"
+    grep -q "container_name:" "$archivo" && camp="${camp}\"container_name\":\"xx\","
+    grep -q "docker.sock" "$archivo" && add_vol "/var/run/docker.sock" "/var/run/docker.sock"
+    grep -q "/etc:/host-etc" "$archivo" && add_vol "/etc" "/host-etc"
+    # bind interno (./ops:/ops:ro) — no se rechaza; el stub no añade nada.
+  fi
 fi
-printf '{"services":{"web":{"image":"nginx"%s%s}}}\n' "$priv" "$sock"
+
+# Construir JSON con campos correctos.
+partes=""
+[ -n "$camp" ] && partes="${camp%,}"
+[ "$vol_array" != "[]" ] && partes="${partes:+${partes},}\"volumes\":${vol_array}"
+
+if [ -n "$partes" ]; then
+  printf '{"services":{"web":{"image":"nginx",%s}}}\n' "$partes"
+else
+  printf '{"services":{"web":{"image":"nginx"}}}\n'
+fi
