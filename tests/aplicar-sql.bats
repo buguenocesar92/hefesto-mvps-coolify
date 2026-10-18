@@ -48,7 +48,9 @@ SQL
   run --separate-stderr "$RAIZ/aplicar-sql.sh" --apps pgapp --dry-run
   echo "status=$status stderr=$stderr output=$output"
   [ "$status" -eq 0 ]
-  [ ! -s "$STUB_LOG" ] || ! grep -qE 'curl (POST|PATCH|DELETE|GET) /services/' "$STUB_LOG"
+  # Sin llamadas a la API: el log del stub queda sin líneas curl (ni siquiera /version).
+  [ ! -s "$STUB_LOG" ]
+  ! grep -q '^curl ' "$STUB_LOG"
 }
 
 @test "--ejecutar crea la task con container:supabase-db y enabled:false, la ejecuta y lee executions" {

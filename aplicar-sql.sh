@@ -66,11 +66,8 @@ if [ "${#slugs[@]}" -eq 0 ]; then
   echo "nada que aplicar" >&2; exit 0
 fi
 
-# --dry-run: solo imprime el plan y sale.
+# --dry-run: solo imprime el plan y sale. Nunca llama a la API.
 if [ "$MODO" = "dry" ]; then
-  if [ -f "${COOLIFY_TOKEN_FILE:-/nada}" ]; then
-    api GET /version >/dev/null 2>&1 || true
-  fi
   for slug in "${slugs[@]}"; do
     printf 'sql: %s (archivo %s/sql/%s.sql)\n' "$slug" "$ESTADO_DIR" "$slug"
   done
