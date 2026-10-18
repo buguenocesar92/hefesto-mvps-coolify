@@ -108,12 +108,18 @@ SQL
   # El cuerpo del POST scheduled-tasks contiene el comando (con base64 del SQL).
   jq -e '.command | contains("psql -U postgres -v ON_ERROR_STOP=1")' \
     "$STUB_DIR/cuerpo_POST__services_supabase-uuid-1_scheduled-tasks_1" >/dev/null
-  # Ningún secreto en $output / $stderr / STUB_LOG.
-  [[ "$output" != *"secreto-privado-XYZ"* ]]
-  [[ "$stderr" != *"secreto-privado-XYZ"* ]]
-  ! grep -qF 'secreto-privado-XYZ' "$STUB_LOG"
-  # El cuerpo de scheduled-tasks no contiene la clave plana.
-  ! grep -qF 'secreto-privado-XYZ' "$STUB_DIR/cuerpo_POST__services_supabase-uuid-1_scheduled-tasks_1"
+  # Recuperar el valor REAL de la clave y comprobar que no aparece en ningún lado
+  # (el SQL viaja en base64; un grep del valor en claro sobre el body no probaría nada).
+  # shellcheck source=lib/secretos.sh
+  source "$RAIZ/lib/secretos.sh"
+  pass="$(secreto pgapp DB_PASSWORD hex64)"
+  [[ "$output" != *"$pass"* ]]
+  [[ "$stderr" != *"$pass"* ]]
+  ! grep -qF "$pass" "$STUB_LOG"
+  ! grep -qF "$pass" "$STUB_DIR/cuerpo_POST__services_supabase-uuid-1_scheduled-tasks_1"
+  # La URL registrada no contiene ni base64 ni psql (el comando viaja en el body).
+  ! grep -q 'base64' "$STUB_LOG"
+  ! grep -q 'psql' "$STUB_LOG"
 }
 
 @test "tras el éxito se llama al DELETE de la task" {
