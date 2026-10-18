@@ -22,7 +22,7 @@ emitir() { echo "$1: $2" >&2; problemas=1; }
 
 # 1) Comprobaciones simples por servicio (jq emite un TSV por problema).
 mapfile -t lineas_simples < <(echo "$json" | jq -r '
-  .services | to_entries[]
+  (.services // {}) | to_entries[]
   | select((.value.profiles // []) | length == 0)
   | .key as $s | .value as $v
   | (
@@ -45,7 +45,7 @@ done
 
 # 2) Binds: docker.sock o fuera del proyecto.
 mapfile -t binds < <(echo "$json" | jq -r '
-  .services | to_entries[]
+  (.services // {}) | to_entries[]
   | select((.value.profiles // []) | length == 0)
   | .key as $s
   | (.value.volumes // []) | .[] | select(.type == "bind")
