@@ -14,6 +14,40 @@ coolify_validar() {
   (( (8#$(stat -c %a "$COOLIFY_TOKEN_FILE") & 8#077) == 0 )) || { error "$COOLIFY_TOKEN_FILE debe ser 0600"; return 1; }
 }
 
+# coolify_server_uuid: imprime el uuid del primer server configurado. Sale 1 si no hay.
+# Si $COOLIFY_SERVER_UUID está definido, lo respeta.
+coolify_server_uuid() {
+  if [ -n "${COOLIFY_SERVER_UUID:-}" ]; then
+    printf '%s' "$COOLIFY_SERVER_UUID"; return 0
+  fi
+  local servers server_uuid
+  servers="$(api GET /servers)" || { error "no se pudo listar servers"; return 1; }
+  server_uuid="$(printf '%s' "$servers" | jq -r '.[0].uuid')"
+  if [ -z "$server_uuid" ] || [ "$server_uuid" = "null" ]; then
+    error "no hay servers configurados"; return 1
+  fi
+  printf '%s' "$server_uuid"
+}
+
+# coolify_proyecto_mvps: imprime el uuid del proyecto "mvps" o lo crea si no existe.
+coolify_proyecto_mvps() {
+  local proyectos proj_uuid body proj_resp
+  proyectos="$(api GET /projects)" || proyectos="[]"
+  proj_uuid="$(printf '%s' "$proyectos" | jq -r --arg n "mvps" '.[] | select(.name==$n) | .uuid' | head -1)"
+  if [ -n "$proj_uuid" ] && [ "$proj_uuid" != "null" ]; then
+    printf '%s' "$proj_uuid"; return 0
+  fi
+  body="$(mktemp "${TMPDIR:-/tmp}/hefesto_body.XXXXXX")"
+  printf '{"name":"mvps","description":"MVPs desplegados desde hefesto-mvps-coolify"}' > "$body"
+  proj_resp="$(api POST /projects "$body")" || { error "no se pudo crear el proyecto"; rm -f "$body"; return 1; }
+  rm -f "$body"
+  proj_uuid="$(printf '%s' "$proj_resp" | jq -r '.uuid')"
+  if [ -z "$proj_uuid" ] || [ "$proj_uuid" = "null" ]; then
+    error "no se pudo obtener uuid del proyecto mvps"; return 1
+  fi
+  printf '%s' "$proj_uuid"
+}
+
 # api <MÉTODO> <ruta> [archivo-json]: imprime el cuerpo de la respuesta; 0 si 2xx, 1 si no.
 # Reintenta hasta 5 veces ante 429 respetando Retry-After (por defecto 5 s).
 api() {

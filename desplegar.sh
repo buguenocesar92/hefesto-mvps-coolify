@@ -195,25 +195,10 @@ fi
 if ! coolify_validar; then exit 1; fi
 
 # Servidor
-if [ -n "${COOLIFY_SERVER_UUID:-}" ]; then
-  server_uuid="$COOLIFY_SERVER_UUID"
-else
-  servers="$(api GET /servers)" || { error "no se pudo listar servers"; exit 1; }
-  server_uuid="$(printf '%s' "$servers" | jq -r '.[0].uuid')"
-  if [ -z "$server_uuid" ] || [ "$server_uuid" = "null" ]; then
-    error "no hay servers configurados"; exit 1
-  fi
-fi
+server_uuid="$(coolify_server_uuid)" || exit 1
 
 # Proyecto mvps
-proyectos="$(api GET /projects)" || proyectos="[]"
-proj_uuid="$(printf '%s' "$proyectos" | jq -r --arg n "mvps" '.[] | select(.name==$n) | .uuid' | head -1)"
-if [ -z "$proj_uuid" ] || [ "$proj_uuid" = "null" ]; then
-  body="$(mktemp "${TMPDIR:-/tmp}/hefesto_body.XXXXXX")"; printf '{"name":"mvps","description":"MVPs desplegados desde hefesto-mvps-coolify"}' > "$body"
-  proj_resp="$(api POST /projects "$body")" || { error "no se pudo crear el proyecto"; rm -f "$body"; exit 1; }
-  rm -f "$body"
-  proj_uuid="$(printf '%s' "$proj_resp" | jq -r '.uuid')"
-fi
+proj_uuid="$(coolify_proyecto_mvps)" || exit 1
 log "proyecto mvps: $proj_uuid"
 
 fallos=0
