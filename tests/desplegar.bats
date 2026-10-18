@@ -189,3 +189,32 @@ YAML
     done < "$ESTADO_DIR/$slug.env"
   done
 }
+
+@test "plantilla con {{PENDIENTE}}: NECESITA_DATOS con la lista de variables, sin API para la app, sale 1" {
+  printf 'X_EXTERNA={{PENDIENTE}}\nY_OTRA={{PENDIENTE}}\n' >> "$ENVS_DIR/liviana.tpl"
+  run --separate-stderr "$RAIZ/desplegar.sh" --apps liviana --ejecutar
+  echo "status=$status stderr=$stderr"; cat "$STUB_LOG"
+  [ "$status" -eq 1 ]
+  [ "$(awk -F'\t' '$1=="liviana" {print $3}' "$ESTADO_DIR/apps.tsv")" = "NECESITA_DATOS" ]
+  [[ "$stderr" == *"NECESITA_DATOS liviana: X_EXTERNA Y_OTRA"* ]]
+  [ "$(grep -c 'uuid-liviana\|POST /applications/public' "$STUB_LOG")" -eq 0 ]
+}
+
+@test "--todas con una app NECESITA_DATOS sigue con las demás y sale 1" {
+  printf 'X_EXTERNA={{PENDIENTE}}\n' >> "$ENVS_DIR/liviana.tpl"
+  run --separate-stderr "$RAIZ/desplegar.sh" --todas --ejecutar
+  echo "status=$status stderr=$stderr"; cat "$STUB_LOG"
+  [ "$status" -eq 1 ]
+  [ "$(grep -c 'curl POST /applications/public' "$STUB_LOG")" -eq 2 ]
+  [ "$(awk -F'\t' '$1=="liviana" {print $3}' "$ESTADO_DIR/apps.tsv")" = "NECESITA_DATOS" ]
+  [ "$(awk -F'\t' '$1=="pesada" {print $3}' "$ESTADO_DIR/apps.tsv")" = "CREADA_DETENIDA" ]
+  [ "$(awk -F'\t' '$1=="privada" {print $3}' "$ESTADO_DIR/apps.tsv")" = "DESPLEGADA_SIN_DOMINIO" ]
+}
+
+@test "--dry-run anuncia NECESITA_DATOS con los nombres y no hace POST ni PATCH" {
+  printf 'X_EXTERNA={{PENDIENTE}}\n' >> "$ENVS_DIR/liviana.tpl"
+  run "$RAIZ/desplegar.sh" --apps liviana --dry-run
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"liviana: NECESITA_DATOS (X_EXTERNA)"* ]]
+  ! grep -qE 'curl POST|curl PATCH' "$STUB_LOG"
+}

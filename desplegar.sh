@@ -128,18 +128,20 @@ ver_uuid_app() {
   awk -F'\t' -v s="$1" '$1==s {print $2; exit}' "$ESTADO_DIR/apps.tsv" 2>/dev/null
 }
 
+# pendientes_de <slug>: imprime, una por línea, las variables de la plantilla que valen {{PENDIENTE}}.
+pendientes_de() {
+  local plantilla="${ENVS_DIR:-$RAIZ/envs}/$1.tpl"
+  [ -f "$plantilla" ] || return 0
+  grep -E '^[A-Z][A-Z0-9_]*=.*\{\{PENDIENTE\}\}' "$plantilla" | cut -d= -f1 || true
+}
+
 # Genera JSON para PATCH envs/bulk con render_env (no imprime secretos en logs).
 generar_envs_json() {
   local slug="$1"
   local tmp_env; tmp_env="$(mktemp "${TMPDIR:-/tmp}/hefesto_envs.XXXXXX")"
   chmod 600 "$tmp_env"
   if ! render_env "$slug" > "$tmp_env" 2> "$tmp_env.err"; then
-    if grep -q '^pendiente:' "$tmp_env.err"; then
-      pendientes_app="$(grep -c '^pendiente:' "$tmp_env.err" || true)"
-    else
-      pendientes_app=0
-      error "render_env falló para $slug"
-    fi
+    error "render_env falló para $slug"
     rm -f "$tmp_env" "$tmp_env.err"
     return 1
   fi
@@ -167,6 +169,11 @@ if [ "$MODO" = "dry" ]; then
     host="$slug.$DOMINIO_BASE"
     if ! validar_compose_app "$slug" "$repo" "$base_dir" "$compose_file"; then
       printf '%s: RECHAZADO_COMPOSE\n' "$slug"
+      continue
+    fi
+    mapfile -t pend < <(pendientes_de "$slug")
+    if [ "${#pend[@]}" -gt 0 ]; then
+      printf '%s: NECESITA_DATOS (%s)\n' "$slug" "${pend[*]}"
       continue
     fi
     if [ "$alta_privada" = "si" ] && [ "$PUBLICAR" -eq 0 ]; then
@@ -231,6 +238,14 @@ for slug in "${apps_iter[@]}"; do
     continue
   fi
 
+  mapfile -t pend < <(pendientes_de "$slug")
+  if [ "${#pend[@]}" -gt 0 ]; then
+    log "NECESITA_DATOS $slug: ${pend[*]}"
+    registrar_estado "$slug" "$(ver_uuid_app "$slug")" "NECESITA_DATOS"
+    pendientes_total=$((pendientes_total + 1))
+    continue
+  fi
+
   # UUID: si ya existe en estado, usarlo; si no, crear.
   app_uuid="$(ver_uuid_app "$slug")"
   if [ -z "$app_uuid" ]; then
@@ -271,15 +286,7 @@ for slug in "${apps_iter[@]}"; do
 
   # Variables
   envs_json="$(generar_envs_json "$slug")" || {
-    if [ "${pendientes_app:-0}" -gt 0 ]; then
-      log_aplicacion "NECESITA_DATOS $slug ($pendientes_app pendientes)"
-      registrar_estado "$slug" "$app_uuid" "NECESITA_DATOS"
-      pendientes_total=$((pendientes_total + 1))
-    else
-      registrar_estado "$slug" "$app_uuid" "ERROR_ENVS"; fallos=$((fallos + 1))
-    fi
-    continue
-  }
+    registrar_estado "$slug" "$app_uuid" "ERROR_ENVS"; fallos=$((fallos + 1)); continue; }
   envs_body="$(mktemp "${TMPDIR:-/tmp}/hefesto_envs_body.XXXXXX")"; printf '%s' "$envs_json" > "$envs_body"
   api PATCH "/applications/$app_uuid/envs/bulk" "$envs_body" >/dev/null || { error "envs/bulk falló para $slug"; rm -f "$envs_body"; registrar_estado "$slug" "$app_uuid" "ERROR_ENVS_BULK"; fallos=$((fallos + 1)); continue; }
   rm -f "$envs_body"
