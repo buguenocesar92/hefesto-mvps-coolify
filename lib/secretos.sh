@@ -113,6 +113,17 @@ expandir_marcador() {
     valor="${valor//\{\{SUPABASE_SECRET_KEY\}\}/${contenido}}"
   fi
 
+  if [[ "$valor" =~ \{\{RESEND_API_KEY\}\} ]]; then
+    local rf="${RESEND_ENV_FILE:-$HOME/.config/hefesto/resend.env}" rkey
+    [ -f "$rf" ] || { error "no encuentro la API key de Resend en $rf"; return 1; }
+    rkey="$(grep -E '^RESEND_API_KEY=' "$rf" | head -1 | cut -d= -f2- || true)"
+    if [ -z "$rkey" ]; then
+      rkey="$(grep -E '^re_[A-Za-z0-9]+' "$rf" | head -1 | cut -d= -f2- || true)"
+    fi
+    [ -n "$rkey" ] || { error "no encuentro la API key de Resend en $rf"; return 1; }
+    valor="${valor//\{\{RESEND_API_KEY\}\}/${rkey}}"
+  fi
+
   if [[ "$valor" =~ \{\{SUPABASE_ANON_KEY\}\} ]]; then
     local akf="${SUPABASE_ANON_KEY_FILE:-$HOME/.config/hefesto/supabase-anon-key}" aperms acontenido
     [ -f "$akf" ] || { error "falta el archivo $akf"; return 1; }

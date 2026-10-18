@@ -3,6 +3,7 @@
 # App: finanzas  bd=sqlite  grupo=liviana  alta_privada=si
 BASIC_AUTH_USER=hefesto
 BASIC_AUTH_HASH={{GEN:bcrypt:BASIC_AUTH_PASSWORD}}
+SMTP_READY=false
 INITIAL_SETUP_COMPLETE=false
 # publicar: INITIAL_SETUP_COMPLETE=true
 APP_URL={{URL}}

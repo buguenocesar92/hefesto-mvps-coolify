@@ -3,6 +3,7 @@
 # App: traducciones  bd=sqlite  grupo=pesada  alta_privada=no
 BASIC_AUTH_USER=hefesto
 BASIC_AUTH_HASH={{GEN:bcrypt:BASIC_AUTH_PASSWORD}}
+SMTP_READY=false
 INITIAL_SETUP_COMPLETE=false
 APP_URL={{URL}}
 APP_HOST={{HOST}}

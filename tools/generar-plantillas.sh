@@ -87,6 +87,15 @@ declarar_y_emitir() {
     printf '%s=%s\n' "$var" "$valor" >> "$p"
   fi
 }
+# sobrescribir_valor <VAR> <valor>: elimina la línea previa (si existe) y agrega la nueva.
+sobrescribir_valor() {
+  local var="$1" valor="$2"
+  local tmp_antes; tmp_antes="$(mktemp "${TMPDIR:-/tmp}/hefesto_plantilla.XXXXXX")"
+  grep -v "^${var}=" "$p" > "$tmp_antes" || true
+  printf '%s=%s\n' "$var" "$valor" >> "$tmp_antes"
+  mv "$tmp_antes" "$p"
+  ya["$var"]=1
+}
 declarar_pendiente() {
   local var="$1" motivo="$2"
   if [ -z "${ya[$var]:-}" ]; then
@@ -129,7 +138,6 @@ while IFS= read -r linea || [ -n "$linea" ]; do
   bd="$(printf '%s\n' "$linea" | cut -f8)"
   grupo="$(printf '%s\n' "$linea" | cut -f9)"
   alta_privada="$(printf '%s\n' "$linea" | cut -f10)"
-  necesita_smtp="$(printf '%s\n' "$linea" | cut -f11)"
   cambios="$(printf '%s\n' "$linea" | cut -f12)"
   vars="$(printf '%s\n' "$linea" | cut -f13)"
   secretos="$(printf '%s\n' "$linea" | cut -f14)"
@@ -138,6 +146,7 @@ while IFS= read -r linea || [ -n "$linea" ]; do
   encabezado_plantilla
   emitir_cabecera
   declare -A ya=() ya_publicar=() fmt_secreto=() fmt_invalido=()
+pide_smtp_flag=0
 
   # Columna 14 (secretos_generables) → formato normalizado o inválido, por variable.
   if [ -n "$secretos" ]; then
@@ -213,10 +222,24 @@ while IFS= read -r linea || [ -n "$linea" ]; do
           declarar_y_emitir "$nombre_base" "{{ADMIN_EMAIL}}" ;;
         MAIL_FROM|SMTP_FROM|NOREPLY_EMAIL|EMAIL_NOREPLY|MAILER_SENDER_EMAIL)
           declarar_y_emitir "$nombre_base" "no-reply@$DOMINIO_BASE" ;;
-        SMTP_HOST|SMTP_ADDRESS) declarar_y_emitir "$nombre_base" "smtp.invalid" ;;
-        SMTP_PORT) declarar_y_emitir "$nombre_base" "465" ;;
-        SMTP_USER|SMTP_USERNAME|SMTP_PASSWORD) declarar_y_emitir "$nombre_base" "desactivado" ;;
-        MAILER_DSN|MAILER_URL) declarar_y_emitir "$nombre_base" "null://null" ;;
+        SMTP_HOST|SMTP_ADDRESS|DISCOURSE_SMTP_ADDRESS)
+          pide_smtp_flag=1
+          if [ "$slug" = "marketing" ]; then : ; else declarar_y_emitir "$nombre_base" "smtp.resend.com"; fi ;;
+        SMTP_PORT)
+          pide_smtp_flag=1
+          if [ "$slug" = "marketing" ]; then : ; else declarar_y_emitir "$nombre_base" "465"; fi ;;
+        SMTP_USER|SMTP_USERNAME)
+          pide_smtp_flag=1
+          if [ "$slug" = "marketing" ]; then : ; else declarar_y_emitir "$nombre_base" "resend"; fi ;;
+        SMTP_PASSWORD|SMTP_PASS)
+          pide_smtp_flag=1
+          if [ "$slug" = "marketing" ]; then : ; else declarar_y_emitir "$nombre_base" "{{RESEND_API_KEY}}"; fi ;;
+        MAILER_DSN|MAILER_URL)
+          pide_smtp_flag=1
+          if [ "$slug" = "marketing" ]; then declarar_y_emitir "$nombre_base" "null://null"
+          else declarar_y_emitir "$nombre_base" "smtps://resend:{{RESEND_API_KEY}}@smtp.resend.com:465"; fi ;;
+        DELIVERY_ENABLED)
+          declarar_y_emitir "$nombre_base" "false" ;;
         BASIC_AUTH_USER|NR_ADMIN_USER|NR_HTTP_USER|KOPIA_SERVER_USERNAME|CLICKHOUSE_USER|MINIO_ROOT_USER)
           declarar_y_emitir "$nombre_base" "hefesto" ;;
         TRUSTED_PROXIES|APP_TRUSTED_PROXIES|TRUSTED_PROXY|GOKAPI_TRUSTED_PROXIES|APP_PROXIES)
@@ -244,14 +267,34 @@ while IFS= read -r linea || [ -n "$linea" ]; do
     supabase-rest)
       declarar_y_emitir "STORAGE_BACKEND" "supabase" ;;
   esac
-  # SMTP apagado (no hay proveedor) y mínimos comunes.
-  if [ "$necesita_smtp" != "no" ]; then declarar_y_emitir "SMTP_READY" "false"; fi
+  # Si la plantilla pidió algún campo SMTP, completar los demás con Resend (excepto marketing).
+  if [ "$pide_smtp_flag" = "1" ] && [ "$slug" != "marketing" ]; then
+    declarar_y_emitir "SMTP_HOST" "smtp.resend.com"
+    declarar_y_emitir "SMTP_PORT" "465"
+    case "$slug" in
+      ideas|firmas|publicaciones) declarar_y_emitir "SMTP_USERNAME" "resend" ;;
+      *) declarar_y_emitir "SMTP_USER" "resend" ;;
+    esac
+    declarar_y_emitir "SMTP_PASSWORD" "{{RESEND_API_KEY}}"
+  fi
+
+# SMTP con Resend (marketing y boletines siguen apagados para no enviar correo masivo desde MVP).
+  case "$slug" in
+    marketing)
+      sobrescribir_valor "MAILER_DSN" "null://null"
+      sobrescribir_valor "SMTP_READY" "false" ;;
+    boletines)
+      sobrescribir_valor "DELIVERY_ENABLED" "false"
+      sobrescribir_valor "SMTP_READY" "false" ;;
+    *) if [ "$pide_smtp_flag" = "1" ]; then sobrescribir_valor "SMTP_READY" "true"
+       else sobrescribir_valor "SMTP_READY" "false"; fi ;;
+  esac
   declarar_y_emitir "INITIAL_SETUP_COMPLETE" "false"
   if [ "$alta_privada" = "si" ]; then emitir_publicar "INITIAL_SETUP_COMPLETE"; fi
   declarar_y_emitir "APP_URL" "{{URL}}"
   declarar_y_emitir "APP_HOST" "{{HOST}}"
 
-  unset ya ya_publicar fmt_secreto fmt_invalido
+  unset ya ya_publicar fmt_secreto fmt_invalido pide_smtp_flag
 done < "$APPS_TSV"
 
 total="$(find "$ENVS_SALIDA" -maxdepth 1 -name '*.tpl' | wc -l)"
