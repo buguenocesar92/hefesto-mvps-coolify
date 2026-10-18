@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# stub de curl para la API de Coolify: registra método y ruta, nunca el token; responde desde $STUB_DIR/resp.
+metodo=GET salida="" cabeceras="" url="" cuerpo=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -X) metodo="$2"; shift 2 ;;
+    -o) salida="$2"; shift 2 ;;
+    -D) cabeceras="$2"; shift 2 ;;
+    --data-binary) cuerpo="${2#@}"; shift 2 ;;
+    -H) [[ "$2" == @* ]] && grep -q '^Authorization: Bearer ' "${2#@}" && echo "token-por-fd" >> "$STUB_LOG"; shift 2 ;;
+    -w|--max-time|--max-redirs) shift 2 ;;
+    http*) url="$1"; shift ;;
+    *) shift ;;
+  esac
+done
+ruta="${url#*/api/v1}"; clave="${metodo}_$(printf '%s' "$ruta" | tr '/?&=' '____')"
+n_archivo="$STUB_DIR/n_$clave"; n=$(( $(cat "$n_archivo" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$n_archivo"
+echo "curl $metodo $ruta" >> "$STUB_LOG"
+[[ -n "$cuerpo" ]] && cp "$cuerpo" "$STUB_DIR/cuerpo_${clave}_$n"
+r="$STUB_DIR/resp/$clave"
+codigo="$(cat "$r.code.$n" 2>/dev/null || cat "$r.code" 2>/dev/null || echo 200)"
+[[ -n "$salida" ]] && { cat "$r" 2>/dev/null || echo '{}'; } > "$salida"
+[[ -n "$cabeceras" ]] && printf 'HTTP/1.1 %s\r\nRetry-After: 0\r\n' "$codigo" > "$cabeceras"
+printf '%s' "$codigo"
