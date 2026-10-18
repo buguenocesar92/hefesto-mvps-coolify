@@ -90,42 +90,36 @@ EOF
   done
 }
 
-@test "render_env corre sobre todas las plantillas reales y las que fallan coinciden con reporte.md" {
-  [ -f "$RAIZ/reporte.md" ] || { echo "falta reporte.md; correr tools/generar-plantillas.sh primero" >&2; return 1; }
-  # Anular ENVS_DIR del setup: queremos las plantillas reales de $RAIZ/envs.
+@test "render_env sobre todas las plantillas reales: fallan solo por pendientes, coinciden con los .tpl y con reporte.md, y solo ordenia/respaldos" {
+  [ -f "$RAIZ/reporte.md" ] || { echo "falta reporte.md; correr tools/generar-plantillas.sh" >&2; return 1; }
   unset ENVS_DIR
   export HEFESTO_ADMIN_EMAIL="prueba@ejemplo.test"
-  export SUPABASE_DB_HOST="supabase-db"
-  export SUPABASE_INTERNAL_URL="http://supabase-kong:8000"
-  # archivo de anon key 0600
-  anon="$BATS_TEST_TMPDIR/anon.key"; printf 'anon-test-key' > "$anon"; chmod 600 "$anon"
-  export SUPABASE_ANON_KEY_FILE="$anon"
-  # archivo de service key 0600
-  sk="$BATS_TEST_TMPDIR/sk.key"; printf 'service-test-key' > "$sk"; chmod 600 "$sk"
-  export SUPABASE_KEY_FILE="$sk"
-
-  ok=0; fail=0; fallaron=""
-  while IFS=$'\t' read -r slug _; do
-    [ "$slug" = "slug" ] && continue
-    [ -z "$slug" ] && continue
-    [ -f "$RAIZ/envs/$slug.tpl" ] || continue
-    if render_env "$slug" >/dev/null 2>"$BATS_TEST_TMPDIR/render.err"; then
+  anon="$BATS_TEST_TMPDIR/anon.key"; printf 'anon-test-key' > "$anon"; chmod 600 "$anon"; export SUPABASE_ANON_KEY_FILE="$anon"
+  sk="$BATS_TEST_TMPDIR/sk.key"; printf 'service-test-key' > "$sk"; chmod 600 "$sk"; export SUPABASE_KEY_FILE="$sk"
+  ok=0; obtenidas=()
+  for tpl in "$RAIZ"/envs/*.tpl; do
+    slug="$(basename "$tpl" .tpl)"
+    err="$BATS_TEST_TMPDIR/$slug.err"
+    if render_env "$slug" >/dev/null 2>"$err"; then
       ok=$((ok + 1))
     else
-      fail=$((fail + 1))
-      fallaron="$fallaron $slug"
+      obtenidas+=("$slug")
+      [ -s "$err" ] || { echo "$slug falló sin decir por qué" >&2; return 1; }
+      if grep -qv '^pendiente: ' "$err"; then
+        echo "$slug falló por algo que no es un pendiente:" >&2; cat "$err" >&2; return 1
+      fi
     fi
-  done < <(tail -n +2 "$RAIZ/apps.tsv" | cut -f1)
-
-  echo "ok=$ok fail=$fail fallaron=$fallaron"
-  [ "$fail" -gt 0 ]
-  # Las apps que fallan deben ser EXACTAMENTE las listadas en reporte.md (las que
-  # tienen alguna variable en {{PENDIENTE}}).
-  esperadas="$(grep -E '^## [a-z][a-z0-9-]+ · ' "$RAIZ/reporte.md" | awk '{print $2}' | sort -u | tr '\n' ' ')"
-  obtenidas="$(printf '%s' "$fallaron" | tr ' ' '\n' | sort -u | tr '\n' ' ')"
-  esperadas_norm="$(printf '%s' "$esperadas" | xargs)"
-  obtenidas_norm="$(printf '%s' "$obtenidas" | xargs)"
-  [ "$esperadas_norm" = "$obtenidas_norm" ] || { echo "diferencia: esperadas=$esperadas_norm obtenidas=$obtenidas_norm" >&2; return 1; }
+  done
+  obt="$(printf '%s\n' "${obtenidas[@]}" | sed '/^$/d' | sort -u | xargs)"
+  tpl_pend="$(grep -l '{{PENDIENTE}}' "$RAIZ"/envs/*.tpl | xargs -r -n1 basename | sed 's/\.tpl$//' | sort -u | xargs)"
+  rep="$(grep -E '^## [a-z][a-z0-9-]+ · ' "$RAIZ/reporte.md" | awk '{print $2}' | sort -u | xargs)"
+  echo "renderizables=$ok no_renderizables=$obt"
+  [ "$obt" = "$tpl_pend" ] || { echo "fallan=[$obt] pero tienen PENDIENTE=[$tpl_pend]" >&2; return 1; }
+  [ "$obt" = "$rep" ] || { echo "fallan=[$obt] pero reporte.md=[$rep]" >&2; return 1; }
+  for s in "${obtenidas[@]}"; do
+    case "$s" in ordenia|respaldos) ;; *) echo "$s no debería quedar pendiente" >&2; return 1 ;; esac
+  done
+  [ "$ok" -eq $(( $(find "$RAIZ/envs" -maxdepth 1 -name '*.tpl' | wc -l) - ${#obtenidas[@]} )) ]
 }
 
 @test "{{HOST:<slug>}} se expande a <slug>.\$DOMINIO_BASE, también dentro de otro valor" {
