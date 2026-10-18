@@ -1,0 +1,14 @@
+# Plantilla generada para hefesto-mvps-coolify.
+# Regenerar con tools/generar-plantillas.sh si cambia apps.tsv.
+# App: crm  bd=mariadb-local  grupo=media  alta_privada=no
+
+CRM_HOST={{PENDIENTE}}
+DB_PASSWORD={{DB_PASSWORD}}
+DB_ROOT_PASSWORD={{GEN:hex64}}
+ADMIN_PASSWORD={{GEN:hex64}}
+INSTANCE_ID={{PENDIENTE}}
+CRON_KEY={{GEN:hex64}}
+SMTP_READY=false
+INITIAL_SETUP_COMPLETE=false
+APP_URL={{URL}}
+APP_HOST={{HOST}}
