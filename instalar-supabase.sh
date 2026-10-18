@@ -41,13 +41,13 @@ done
 [ -n "$MODO" ] || MODO="dry"
 
 # leer_resend_api_key: toma el valor de RESEND_API_KEY del archivo $RESEND_ENV_FILE;
-# si no existe, el primer valor que empiece con re_. Nunca imprime la clave.
+# si no existe, el primer valor que empiece con re_ (línea con formato CLAVE=valor). Nunca imprime la clave.
 leer_resend_api_key() {
   [ -f "$RESEND_ENV_FILE" ] || { error "no encuentro la API key de Resend en $RESEND_ENV_FILE"; return 1; }
   local k=""
   k="$(grep -E '^RESEND_API_KEY=' "$RESEND_ENV_FILE" | head -1 | cut -d= -f2- || true)"
   if [ -z "$k" ]; then
-    k="$(grep -E '^re_[A-Za-z0-9]+' "$RESEND_ENV_FILE" | head -1 | cut -d= -f2- || true)"
+    k="$(grep -E '^[A-Za-z_][A-Za-z0-9_]*=re_' "$RESEND_ENV_FILE" | head -1 | cut -d= -f2- || true)"
   fi
   [ -n "$k" ] || { error "no encuentro la API key de Resend en $RESEND_ENV_FILE"; return 1; }
   printf '%s' "$k"

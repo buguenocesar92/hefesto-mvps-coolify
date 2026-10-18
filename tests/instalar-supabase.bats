@@ -129,3 +129,14 @@ setup() {
   [[ "$output" != *"re_PRUEBA"* ]]
   [[ "$stderr" != *"re_PRUEBA"* ]]
 }
+
+@test "fallback toma el valor que empieza con re_ cuando no hay RESEND_API_KEY" {
+  printf 'OTRA_CLAVE=re_ALT\nOTRO_MAS=nope\n' > "$RESEND_ENV_FILE"; chmod 600 "$RESEND_ENV_FILE"
+  run --separate-stderr "$RAIZ/instalar-supabase.sh" --ejecutar
+  echo "status=$status stderr=$stderr output=$output"
+  [ "$status" -eq 0 ]
+  body_smtp="$STUB_DIR/cuerpo_PATCH__services_supa-uuid-1_envs_bulk_1"
+  jq -e '.data | map(select(.key=="SMTP_PASS")) | .[0].value == "re_ALT"' "$body_smtp" >/dev/null
+  [[ "$output" != *"re_ALT"* ]]
+  [[ "$stderr" != *"re_ALT"* ]]
+}
