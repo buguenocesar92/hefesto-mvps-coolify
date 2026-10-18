@@ -32,13 +32,13 @@ SQL
   ( cd "$REPOS_DIR/hefesto-restapp" && git add . && git commit -q -m sql )
 }
 
-@test "--todas genera SQL con CREATE DATABASE mvp_<slug>, \\connect y migración rest" {
+@test "--todas genera SQL con CREATE DATABASE mvp_<slug> (envoltorio idempotente), \\connect y migración rest" {
   run --separate-stderr "$RAIZ/supabase-sql.sh" --todas
   echo "status=$status stderr=$stderr output=$output"
   [ "$status" -eq 0 ]
   archivo="$(echo "$output" | tail -2 | head -1)"
   [ -f "$archivo" ]
-  grep -q '^CREATE DATABASE mvp_pgapp;' "$archivo"
+  grep -q "SELECT 'CREATE DATABASE mvp_pgapp'.*\\\\gexec" "$archivo"
   grep -qF '\connect mvp_pgapp' "$archivo"
   grep -q '^CREATE ROLE' "$archivo"
   grep -qF '\connect postgres' "$archivo"
