@@ -13,7 +13,7 @@ estado de despliegue en un directorio local.
 - (Apps con `{{SUPABASE_ANON_KEY}}`) clave anon en
   `~/.config/hefesto/supabase-anon-key`, modo `0600`.
 - (Apps con `{{ADMIN_EMAIL}}`) `HEFESTO_ADMIN_EMAIL=tu@correo` en el entorno.
-- `bats`, `jq`, `shellcheck`, `docker compose`, `curl`, `openssl`, `htpasswd` en el
+- `bats`, `jq`, `shellcheck`, `docker compose`, `curl`, `openssl`, `htpasswd`, `python3` en el
   PATH (los tests de `lib/*.sh` los necesitan).
 - El árbol de cada repo en `~/Dev/<repo>`, con la rama `coolify` ya subida.
 
@@ -69,8 +69,12 @@ Todo se persiste en `~/.local/state/hefesto-mvps/` (override con
 `HEFESTO_MVPS_ESTADO`):
 
 - `<slug>.env` (0600): secretos generados por `lib/secretos.sh` (hex64, hex32, hex96,
-  b64-32, alnum24, bcrypt:VAR) por app. Es idempotente: la segunda llamada devuelve el
-  mismo valor.
+  b64-32, alnum24, laravel, bcrypt:VAR, pbkdf2:VAR) por app. Las claves planas de los hash
+  quedan aquí: `<X>_PASSWORD` por cada `<X>_HASH` (bcrypt coste 12) y
+  `SALTED_PASS_PLANO` para el login de vigilancia. `DB_PASSWORD` es hex64; si un `.env`
+  anterior tiene un `DB_PASSWORD` de 32 caracteres, se conserva (idempotencia): bórralo a
+  mano antes de `supabase-sql.sh` si el kit exige hex64. Es idempotente: la segunda
+  llamada devuelve el mismo valor.
 - `apps.tsv` (0600): `slug uuid estado url fecha` por app tras cada corrida.
 - `compose.XXXXXX/`, `sql.XXXXXX/`: temporales para validar compose y armar SQL (se
   borran al cerrar, modo 0700).
@@ -107,12 +111,14 @@ estos estados:
 ## Tests
 
 ```bash
-bats tests/coolify.bats            # 5 ok — cliente de Coolify + token
-bats tests/validar-compose.bats    # 8 ok — validar-compose.sh (docker compose real)
-bats tests/secretos.bats           # 8 ok — lib/secretos.sh + 54 plantillas
-bats tests/desplegar.bats          # 8 ok — desplegar.sh (dry + ejecutar + publicar + idempotencia)
-bats tests/supabase-sql.bats       # 2 ok — supabase-sql.sh
-bats tests/verificar.bats          # 1 ok — verificar.sh
+bats tests/coolify.bats              # 5 ok  — cliente de Coolify + token
+bats tests/validar-compose.bats      # 10 ok — validar-compose.sh (docker compose real; skip sin docker)
+bats tests/secretos.bats             # 15 ok — lib/secretos.sh + render de las 54 plantillas
+bats tests/desplegar.bats            # 11 ok — desplegar.sh (dry, ejecutar, publicar, NECESITA_DATOS)
+bats tests/supabase-sql.bats         # 4 ok  — supabase-sql.sh (rol del kit, DB_PASSWORD hex64)
+bats tests/verificar.bats            # 1 ok  — verificar.sh
+bats tests/generar-plantillas.bats   # 7 ok  — tabla de deducción del generador
+tools/contar-renderizables.sh        # renderizables=52, no_renderizables=ordenia,respaldos
 shellcheck -x *.sh lib/*.sh tests/stubs/* tools/*.sh
 ```
 
