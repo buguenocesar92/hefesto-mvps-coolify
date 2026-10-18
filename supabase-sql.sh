@@ -48,6 +48,7 @@ while IFS= read -r linea || [ -n "$linea" ]; do
   slug="$(printf '%s\n' "$linea" | cut -f1)"
   [ -z "$slug" ] && continue
   repo="$(printf '%s\n' "$linea" | cut -f2)"
+  base_dir="$(printf '%s\n' "$linea" | cut -f3)"
   bd="$(printf '%s\n' "$linea" | cut -f8)"
   secrets="$(printf '%s\n' "$linea" | cut -f14)"
   # secrets no se usa directamente: las claves se generan con secreto <slug> DB_PASSWORD hex32.
@@ -68,16 +69,29 @@ while IFS= read -r linea || [ -n "$linea" ]; do
         echo "\\set app_user '$db_user'"
         echo "\\set app_pass '$db_pass'"
         echo ""
-        # Inyectar sql/01-*.sql del repo (rama coolify)
+        # Inyectar sql/01-*.sql del repo (rama coolify). Se extrae la rama con git
+        # archive a un temporal 0700; base_dir se respeta. Si no hay archivos sql/01-*,
+        # no es un error: el kit puede usar otro mecanismo.
         repo_path="$REPOS_DIR/$repo"
-        if [ -d "$repo_path/coolify/sql" ]; then
-          for f in "$repo_path/coolify/sql"/01-*.sql; do
-            [ -f "$f" ] || continue
-            echo "-- origen: $repo/sql/$(basename "$f")"
-            cat "$f"
-            echo ""
-          done
+        sql_tmp="$(mktemp -d "$ESTADO_DIR/sql.XXXXXX")"
+        chmod 700 "$sql_tmp"
+        case "$base_dir" in
+          /|"") arc_prefix="" ;;
+          *) arc_prefix="${base_dir#/}/" ;;
+        esac
+        if git -C "$repo_path" archive coolify -- "${arc_prefix}sql/" \
+             2>/dev/null | tar -xf - -C "$sql_tmp" 2>/dev/null; then
+          sql_root="$sql_tmp/${arc_prefix}sql"
+          if [ -d "$sql_root" ]; then
+            for f in "$sql_root"/01-*.sql; do
+              [ -f "$f" ] || continue
+              echo "-- origen: $repo/sql/$(basename "$f")"
+              cat "$f"
+              echo ""
+            done
+          fi
         fi
+        rm -rf "$sql_tmp"
       } >> "$tmp"
       bases_pg=$((bases_pg + 1))
       ;;
@@ -86,13 +100,24 @@ while IFS= read -r linea || [ -n "$linea" ]; do
       {
         echo "\\connect postgres"
         echo "-- migraciones rest de $repo"
-        if [ -d "$repo_path/coolify/supabase/migrations" ]; then
-          for f in "$repo_path/coolify/supabase/migrations"/*.sql; do
-            [ -f "$f" ] || continue
-            cat "$f"
-            echo ""
-          done
+        sql_tmp="$(mktemp -d "$ESTADO_DIR/sql.XXXXXX")"
+        chmod 700 "$sql_tmp"
+        case "$base_dir" in
+          /|"") arc_prefix="" ;;
+          *) arc_prefix="${base_dir#/}/" ;;
+        esac
+        if git -C "$repo_path" archive coolify -- "${arc_prefix}supabase/migrations/" \
+             2>/dev/null | tar -xf - -C "$sql_tmp" 2>/dev/null; then
+          mig_root="$sql_tmp/${arc_prefix}supabase/migrations"
+          if [ -d "$mig_root" ]; then
+            for f in "$mig_root"/*.sql; do
+              [ -f "$f" ] || continue
+              cat "$f"
+              echo ""
+            done
+          fi
         fi
+        rm -rf "$sql_tmp"
       } >> "$tmp"
       apps_rest=$((apps_rest + 1))
       ;;

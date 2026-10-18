@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # desplegar.sh (--apps a,b | --grupo liviana|media|pesada | --todas) [--dry-run|--ejecutar] [--publicar]
-# Crea o actualiza aplicaciones de Coolify desde apps.tsv.
-set -eo pipefail
+# Crea o actualiza aplicaciones de Coolify desde apps.tsv. Modo por defecto: --dry-run.
+set -euo pipefail
 # shellcheck shell=bash
 RAIZ_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/comun.sh
@@ -49,7 +49,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-[ -n "$MODO" ] || { error "falta --dry-run o --ejecutar"; uso; exit 2; }
+[ -n "$MODO" ] || MODO="dry"
 [ "${#apps_seleccion[@]}" -gt 0 ] || [ -n "$grupo_seleccion" ] || [ "$todas" -eq 1 ] || {
   error "falta --apps, --grupo o --todas"; uso; exit 2; }
 
@@ -102,14 +102,20 @@ validar_compose_app() {
   [ -d "$repo_path" ] || { error "no existe repo local: $repo_path"; return 1; }
   local tmpdir; tmpdir="$(mktemp -d "$ESTADO_DIR/compose.XXXXXX")"
   chmod 700 "$tmpdir"
-  if ! git -C "$repo_path" archive coolify -- "$base_dir" 2>"$tmpdir/.giterr" | tar -xf - -C "$tmpdir" --strip-components=1 2>"$tmpdir/.tarerr"; then
-    error "git archive falló para $repo: giterr=$(cat "$tmpdir/.giterr" 2>/dev/null) tarerr=$(cat "$tmpdir/.tarerr" 2>/dev/null)"
-    rm -rf "$tmpdir"; return 1
-  fi
+  local proyecto_dir
   if [ "$base_dir" = "/" ] || [ -z "$base_dir" ]; then
-    local proyecto_dir="$tmpdir"
+    proyecto_dir="$tmpdir"
+    if ! git -C "$repo_path" archive coolify 2>"$tmpdir/.giterr" | tar -xf - -C "$tmpdir" 2>"$tmpdir/.tarerr"; then
+      error "git archive falló para $repo: giterr=$(cat "$tmpdir/.giterr" 2>/dev/null) tarerr=$(cat "$tmpdir/.tarerr" 2>/dev/null)"
+      rm -rf "$tmpdir"; return 1
+    fi
   else
-    local base_norm="${base_dir#/}"; local proyecto_dir="$tmpdir/$base_norm"
+    local base_norm="${base_dir#/}"
+    proyecto_dir="$tmpdir/$base_norm"
+    if ! git -C "$repo_path" archive coolify -- "$base_norm" 2>"$tmpdir/.giterr" | tar -xf - -C "$tmpdir" 2>"$tmpdir/.tarerr"; then
+      error "git archive falló para $repo: giterr=$(cat "$tmpdir/.giterr" 2>/dev/null) tarerr=$(cat "$tmpdir/.tarerr" 2>/dev/null)"
+      rm -rf "$tmpdir"; return 1
+    fi
   fi
   if ! "$RAIZ_LIB/validar-compose.sh" "$proyecto_dir" "$compose_file"; then
     rm -rf "$tmpdir"; return 1
@@ -127,11 +133,18 @@ generar_envs_json() {
   local slug="$1"
   local tmp_env; tmp_env="$(mktemp "${TMPDIR:-/tmp}/hefesto_envs.XXXXXX")"
   chmod 600 "$tmp_env"
-  if ! render_env "$slug" > "$tmp_env"; then
-    error "render_env falló para $slug"; rm -f "$tmp_env"; return 1
+  if ! render_env "$slug" > "$tmp_env" 2> "$tmp_env.err"; then
+    if grep -q '^pendiente:' "$tmp_env.err"; then
+      pendientes_app="$(grep -c '^pendiente:' "$tmp_env.err" || true)"
+    else
+      pendientes_app=0
+      error "render_env falló para $slug"
+    fi
+    rm -f "$tmp_env" "$tmp_env.err"
+    return 1
   fi
   cat "$tmp_env"
-  rm -f "$tmp_env"
+  rm -f "$tmp_env" "$tmp_env.err"
 }
 
 if [ "$MODO" = "dry" ]; then
@@ -139,15 +152,23 @@ if [ "$MODO" = "dry" ]; then
   if [ -f "${COOLIFY_TOKEN_FILE:-/nada}" ]; then
     api GET /version >/dev/null 2>&1 || true
   fi
-  # Recorrer apps e imprimir plan
+  # Recorrer apps, validar slug y compose, e imprimir plan
   mapfile -t apps_iter < <(seleccionar_apps | sort -u)
   for slug in "${apps_iter[@]}"; do
     [ -z "$slug" ] && continue
-    fila="$slug"; [ -n "$fila" ] || continue
-    repo="$(campo "$slug" 2)"; bd="$(campo "$slug" 8)"; grupo="$(campo "$slug" 9)"
+    if ! validar_app "$slug"; then
+      printf '%s: slug inválido\n' "$slug"
+      continue
+    fi
+    repo="$(campo "$slug" 2)"; base_dir="$(campo "$slug" 3)"; compose_file="$(campo "$slug" 4)"
+    bd="$(campo "$slug" 8)"; grupo="$(campo "$slug" 9)"
     alta_privada="$(campo "$slug" 10)"; servicio="$(campo "$slug" 5)"; puerto="$(campo "$slug" 6)"
     vars_n="$(awk -F'\t' -v s="$slug" '$1==s {n=split($13,a,","); print n}' "$APPS_FILE")"
     host="$slug.$DOMINIO_BASE"
+    if ! validar_compose_app "$slug" "$repo" "$base_dir" "$compose_file"; then
+      printf '%s: RECHAZADO_COMPOSE\n' "$slug"
+      continue
+    fi
     if [ "$alta_privada" = "si" ] && [ "$PUBLICAR" -eq 0 ]; then
       dom="sin dominio (alta privada)"
     else
@@ -188,6 +209,8 @@ if [ -z "$proj_uuid" ] || [ "$proj_uuid" = "null" ]; then
 fi
 log "proyecto mvps: $proj_uuid"
 
+fallos=0
+pendientes_total=0
 mapfile -t apps_iter < <(seleccionar_apps | sort -u)
 for slug in "${apps_iter[@]}"; do
   [ -z "$slug" ] && continue
@@ -203,7 +226,8 @@ for slug in "${apps_iter[@]}"; do
 
   if ! validar_compose_app "$slug" "$repo" "$base_dir" "$compose_file"; then
     log_aplicacion "RECHAZADO_COMPOSE $slug"
-    registrar_estado "$slug" "" "RECHAZADO_COMPOSE"
+    registrar_estado "$slug" "$(ver_uuid_app "$slug")" "RECHAZADO_COMPOSE"
+    fallos=$((fallos + 1))
     continue
   fi
 
@@ -211,40 +235,81 @@ for slug in "${apps_iter[@]}"; do
   app_uuid="$(ver_uuid_app "$slug")"
   if [ -z "$app_uuid" ]; then
     body="$(mktemp "${TMPDIR:-/tmp}/hefesto_body.XXXXXX")"
-    jq -n --arg p "$proj_uuid" --arg s "$server_uuid" --arg n "$slug" \
+    jq -n --arg p "$proj_uuid" --arg s "$server_uuid" --arg n "$slug" --arg r "$repo" \
            --arg b "coolify" --arg bd "$base_dir" --arg cf "$compose_file" \
       '{project_uuid:$p, server_uuid:$s, environment_name:"production",
-        git_repository:("https://github.com/buguenocesar92/" + $n),
+        git_repository:("https://github.com/buguenocesar92/" + $r),
         git_branch:$b, build_pack:"dockercompose", base_directory:$bd,
         docker_compose_location:$cf, name:$n, instant_deploy:false}' > "$body"
-    app_resp="$(api POST /applications/public "$body")" || { error "no se pudo crear app $slug"; rm -f "$body"; continue; }
+    app_resp="$(api POST /applications/public "$body")" || { error "no se pudo crear app $slug"; rm -f "$body"; registrar_estado "$slug" "" "ERROR_CREAR"; fallos=$((fallos + 1)); continue; }
     rm -f "$body"
     app_uuid="$(printf '%s' "$app_resp" | jq -r '.uuid')"
     if [ -z "$app_uuid" ] || [ "$app_uuid" = "null" ]; then
       error "app $slug sin uuid"
+      registrar_estado "$slug" "" "ERROR_UUID"
+      fallos=$((fallos + 1))
       continue
     fi
   fi
 
-  # Esperar docker_compose_raw
+  # Esperar docker_compose_raw (hasta 120 s con sondeo cada 5 s).
+  ESPERA_SONDEO="${ESPERA_SONDEO:-5}"
   waits=0
   while [ "$waits" -lt 24 ]; do
     waits=$((waits + 1))
     app="$(api GET "/applications/$app_uuid")" || app=""
     raw="$(printf '%s' "$app" | jq -r '.docker_compose_raw // ""')"
     if [ -n "$raw" ]; then break; fi
-    sleep 1
+    sleep "$ESPERA_SONDEO"
   done
   if [ -z "$raw" ]; then
     error "compose no listo para $slug tras espera"
+    registrar_estado "$slug" "$app_uuid" "ERROR_COMPOSE_RAW"
+    fallos=$((fallos + 1))
     continue
   fi
 
   # Variables
-  envs_json="$(generar_envs_json "$slug")" || continue
+  envs_json="$(generar_envs_json "$slug")" || {
+    if [ "${pendientes_app:-0}" -gt 0 ]; then
+      log_aplicacion "NECESITA_DATOS $slug ($pendientes_app pendientes)"
+      registrar_estado "$slug" "$app_uuid" "NECESITA_DATOS"
+      pendientes_total=$((pendientes_total + 1))
+    else
+      registrar_estado "$slug" "$app_uuid" "ERROR_ENVS"; fallos=$((fallos + 1))
+    fi
+    continue
+  }
   envs_body="$(mktemp "${TMPDIR:-/tmp}/hefesto_envs_body.XXXXXX")"; printf '%s' "$envs_json" > "$envs_body"
-  api PATCH "/applications/$app_uuid/envs/bulk" "$envs_body" >/dev/null || { error "envs/bulk falló para $slug"; rm -f "$envs_body"; continue; }
+  api PATCH "/applications/$app_uuid/envs/bulk" "$envs_body" >/dev/null || { error "envs/bulk falló para $slug"; rm -f "$envs_body"; registrar_estado "$slug" "$app_uuid" "ERROR_ENVS_BULK"; fallos=$((fallos + 1)); continue; }
   rm -f "$envs_body"
+
+  # --publicar: lee `# publicar: VAR=VALOR` de la plantilla y sobreescribe en el JSON.
+  if [ "$PUBLICAR" -eq 1 ]; then
+    plantilla_pub="${ENVS_DIR:-$RAIZ/envs}/$slug.tpl"
+    if [ -f "$plantilla_pub" ]; then
+      pubs="$(grep -E '^# publicar: [A-Z][A-Z0-9_]*=(.+)$' "$plantilla_pub" | sed 's/^# publicar: //' || true)"
+      if [ -n "$pubs" ]; then
+        reenv_body="$(mktemp "${TMPDIR:-/tmp}/hefesto_pub.XXXXXX")"
+        printf '%s' "$envs_json" > "$reenv_body"
+        while IFS= read -r linea_pub; do
+          [ -z "$linea_pub" ] && continue
+          var_pub="${linea_pub%%=*}"
+          val_pub="${linea_pub#*=}"
+          if ! jq --arg k "$var_pub" --arg v "$val_pub" \
+            '.data |= map(if .key == $k then .value = $v else . end)' \
+            "$reenv_body" > "$reenv_body.tmp"; then
+            error "--publicar: jq falló para $var_pub"
+            rm -f "$reenv_body" "$reenv_body.tmp"
+            continue
+          fi
+          mv "$reenv_body.tmp" "$reenv_body"
+        done <<< "$pubs"
+        api PATCH "/applications/$app_uuid/envs/bulk" "$reenv_body" >/dev/null || { error "public envs/bulk falló para $slug"; rm -f "$reenv_body"; registrar_estado "$slug" "$app_uuid" "ERROR_PUBLIC_ENVS"; fallos=$((fallos + 1)); continue; }
+        rm -f "$reenv_body"
+      fi
+    fi
+  fi
 
   # Dominio
   host="$slug.$DOMINIO_BASE"
@@ -262,18 +327,18 @@ for slug in "${apps_iter[@]}"; do
         '{docker_compose_domains: ($d1 + $d2)}')"
     fi
     patch_body="$(mktemp "${TMPDIR:-/tmp}/hefesto_patch.XXXXXX")"; printf '%s' "$domains" > "$patch_body"
-    api PATCH "/applications/$app_uuid" "$patch_body" >/dev/null || { error "dominio falló para $slug"; rm -f "$patch_body"; continue; }
+    api PATCH "/applications/$app_uuid" "$patch_body" >/dev/null || { error "dominio falló para $slug"; rm -f "$patch_body"; registrar_estado "$slug" "$app_uuid" "ERROR_DOMINIO"; fallos=$((fallos + 1)); continue; }
     rm -f "$patch_body"
   fi
 
-  # Deploy o detener
-  if [ "$grupo" = "pesada" ]; then
-    api POST "/applications/$app_uuid/start" >/dev/null 2>&1 || true
+  # Deploy o detener. Con --publicar, las pesadas también se despliegan (César las
+  # revisó y quiere que arranquen con el setup inicial en true).
+  if [ "$grupo" = "pesada" ] && [ "$PUBLICAR" -ne 1 ]; then
     registrar_estado "$slug" "$app_uuid" "CREADA_DETENIDA"
     continue
   fi
 
-  api POST "/deploy?uuid=$app_uuid&force=false" >/dev/null || { error "deploy falló para $slug"; continue; }
+  api POST "/deploy?uuid=$app_uuid&force=false" >/dev/null || { error "deploy falló para $slug"; registrar_estado "$slug" "$app_uuid" "ERROR_DEPLOY"; fallos=$((fallos + 1)); continue; }
   if [ "$alta_privada" = "no" ] || [ "$PUBLICAR" -eq 1 ]; then
     registrar_estado "$slug" "$app_uuid" "DESPLEGADA" "https://$host"
   else
@@ -283,3 +348,7 @@ done
 
 log "Resumen:"
 resumen_estado
+if [ "$pendientes_total" -gt 0 ]; then
+  exit 1
+fi
+exit $(( fallos > 0 ))

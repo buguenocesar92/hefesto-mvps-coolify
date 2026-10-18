@@ -6,6 +6,8 @@ load ayudante
 
 setup() {
   preparar_entorno
+  # Importante: NO usar tests/stubs en el PATH aquí; validar-compose.sh debe
+  # hablar con `docker compose` real. Si no está disponible, skip.
   if ! command -v docker >/dev/null 2>&1; then skip "docker no disponible"; fi
   if ! docker compose version >/dev/null 2>&1; then skip "docker compose no disponible"; fi
   export PROYECTO="$BATS_TEST_TMPDIR/p"; mkdir -p "$PROYECTO"

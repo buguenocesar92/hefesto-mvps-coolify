@@ -1,3 +1,5 @@
 .superpowers/
 estado/
 *.env
+envs/.pendientes.txt
+.tmp/

@@ -79,3 +79,51 @@ EOF
     done
   done < <(tail -n +2 "$RAIZ/apps.tsv" | cut -f1)
 }
+
+@test "todos los formatos {{GEN:fmt}} en envs/ son soportados por secreto()" {
+  formatos="$(grep -ohE '\{\{GEN:[^}]+\}\}' "$RAIZ/envs/"*.tpl | sed 's/^{{GEN://; s/}}$//' | sort -u)"
+  for fmt in $formatos; do
+    case "$fmt" in
+      hex64|hex32|hex96|b64-32|alnum24|bcrypt:*) : ;;
+      *) echo "formato no soportado en plantillas: $fmt" >&2; return 1 ;;
+    esac
+  done
+}
+
+@test "render_env corre sobre todas las plantillas reales y las que fallan coinciden con reporte.md" {
+  [ -f "$RAIZ/reporte.md" ] || { echo "falta reporte.md; correr tools/generar-plantillas.sh primero" >&2; return 1; }
+  # Anular ENVS_DIR del setup: queremos las plantillas reales de $RAIZ/envs.
+  unset ENVS_DIR
+  export HEFESTO_ADMIN_EMAIL="prueba@ejemplo.test"
+  export SUPABASE_DB_HOST="supabase-db"
+  export SUPABASE_INTERNAL_URL="http://supabase-kong:8000"
+  # archivo de anon key 0600
+  anon="$BATS_TEST_TMPDIR/anon.key"; printf 'anon-test-key' > "$anon"; chmod 600 "$anon"
+  export SUPABASE_ANON_KEY_FILE="$anon"
+  # archivo de service key 0600
+  sk="$BATS_TEST_TMPDIR/sk.key"; printf 'service-test-key' > "$sk"; chmod 600 "$sk"
+  export SUPABASE_KEY_FILE="$sk"
+
+  ok=0; fail=0; fallaron=""
+  while IFS=$'\t' read -r slug _; do
+    [ "$slug" = "slug" ] && continue
+    [ -z "$slug" ] && continue
+    [ -f "$RAIZ/envs/$slug.tpl" ] || continue
+    if render_env "$slug" >/dev/null 2>"$BATS_TEST_TMPDIR/render.err"; then
+      ok=$((ok + 1))
+    else
+      fail=$((fail + 1))
+      fallaron="$fallaron $slug"
+    fi
+  done < <(tail -n +2 "$RAIZ/apps.tsv" | cut -f1)
+
+  echo "ok=$ok fail=$fail fallaron=$fallaron"
+  [ "$fail" -gt 0 ]
+  # Las apps que fallan deben ser EXACTAMENTE las listadas en reporte.md (las que
+  # tienen alguna variable en {{PENDIENTE}}).
+  esperadas="$(grep -E '^## [a-z][a-z0-9-]+ · ' "$RAIZ/reporte.md" | awk '{print $2}' | sort -u | tr '\n' ' ')"
+  obtenidas="$(printf '%s' "$fallaron" | tr ' ' '\n' | sort -u | tr '\n' ' ')"
+  esperadas_norm="$(printf '%s' "$esperadas" | xargs)"
+  obtenidas_norm="$(printf '%s' "$obtenidas" | xargs)"
+  [ "$esperadas_norm" = "$obtenidas_norm" ] || { echo "diferencia: esperadas=$esperadas_norm obtenidas=$obtenidas_norm" >&2; return 1; }
+}

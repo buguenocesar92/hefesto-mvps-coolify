@@ -15,14 +15,21 @@ slug	repo	base_dir	compose_file	servicio_web	puerto_web	servicios_extra_con_domi
 pgapp	hefesto-pgapp	/	compose.yaml	web	3000		supabase-pg	liviana	no	no		DB_PASSWORD	DB_PASSWORD=hex64
 restapp	hefesto-restapp	/	compose.yaml	web	3000		supabase-rest	liviana	no	no		SUPABASE_URL,SUPABASE_SECRET_KEY	SUPABASE_SECRET_KEY=sin_generar: viene del kit
 EOF
-  mkdir -p "$REPOS_DIR/hefesto-pgapp/coolify/sql"
-  cat > "$REPOS_DIR/hefesto-pgapp/coolify/sql/01-rol.sql" <<'SQL'
+  # Repos git reales con rama coolify
+  for repo in hefesto-pgapp hefesto-restapp; do
+    mkdir -p "$REPOS_DIR/$repo"
+    ( cd "$REPOS_DIR/$repo" && git init -q -b main && git config user.email t@t && git config user.name t && git commit -q --allow-empty -m init && git checkout -q -b coolify )
+  done
+  mkdir -p "$REPOS_DIR/hefesto-pgapp/sql"
+  cat > "$REPOS_DIR/hefesto-pgapp/sql/01-rol.sql" <<'SQL'
 CREATE ROLE :'app_user' LOGIN PASSWORD :'app_pass';
 SQL
-  mkdir -p "$REPOS_DIR/hefesto-restapp/coolify/supabase/migrations"
-  cat > "$REPOS_DIR/hefesto-restapp/coolify/supabase/migrations/20260101000000_init.sql" <<'SQL'
+  ( cd "$REPOS_DIR/hefesto-pgapp" && git add . && git commit -q -m sql )
+  mkdir -p "$REPOS_DIR/hefesto-restapp/supabase/migrations"
+  cat > "$REPOS_DIR/hefesto-restapp/supabase/migrations/20260101000000_init.sql" <<'SQL'
 create table if not exists public.demo (id int);
 SQL
+  ( cd "$REPOS_DIR/hefesto-restapp" && git add . && git commit -q -m sql )
 }
 
 @test "--todas genera SQL con CREATE DATABASE mvp_<slug>, \\connect y migración rest" {

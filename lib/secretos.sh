@@ -2,6 +2,7 @@
 # secretos.sh: generación idempotente de secretos por app y sustitución de marcadores
 # en plantillas envs/<slug>.tpl. Imprime JSON por stdout, listo para PATCH envs/bulk.
 # shellcheck shell=bash
+shopt -s extglob
 HTPASSWD="${HTPASSWD_BIN:-htpasswd}"
 
 # secreto <slug> <VAR> <formato>: emite a stdout el valor; lo guarda en $ESTADO_DIR/<slug>.env.
@@ -53,13 +54,12 @@ secreto() {
 expandir_marcador() {
   local slug="$1" var="$2" valor="$3" db_slug
   db_slug="${slug//-/_}"
-  valor="${valor//\$\{SUPABASE_DB_HOST:-supabase-db\}/${SUPABASE_DB_HOST:-supabase-db}}"
-  valor="${valor//\$\{SUPABASE_INTERNAL_URL:-http://supabase-kong:8000\}/${SUPABASE_INTERNAL_URL:-http://supabase-kong:8000}}"
   valor="${valor//\{\{HOST\}\}/${slug}.$DOMINIO_BASE}"
+  valor="${valor//\{\{HOST:[[:alnum:]-]*\}\}/\1.$DOMINIO_BASE}"
   valor="${valor//\{\{URL\}\}/https://${slug}.$DOMINIO_BASE}"
-  valor="${valor//\{\{DB_HOST\}\}/\$\{SUPABASE_DB_HOST:-supabase-db\}}"
+  valor="${valor//\{\{DB_HOST\}\}/${SUPABASE_DB_HOST:-supabase-db}}"
   valor="${valor//\{\{DB_NAME\}\}/mvp_${db_slug}}"
-  valor="${valor//\{\{SUPABASE_URL\}\}/\$\{SUPABASE_INTERNAL_URL:-http://supabase-kong:8000\}}"
+  valor="${valor//\{\{SUPABASE_URL\}\}/${SUPABASE_INTERNAL_URL:-http://supabase-kong:8000}}"
 
   while [[ "$valor" =~ \{\{DB_PASSWORD\}\} ]]; do
     local dbp; dbp="$(secreto "$slug" DB_PASSWORD hex32)" || return 1
@@ -70,14 +70,33 @@ expandir_marcador() {
     gen="$(secreto "$slug" "$var" "$fmt")" || return 1
     valor="${valor//\{\{GEN:${fmt}\}\}/${gen}}"
   done
-  while [[ "$valor" =~ \{\{SUPABASE_SECRET_KEY\}\} ]]; do
-    local kf="${SUPABASE_KEY_FILE:-$HOME/.config/hefesto/supabase-service-key}" perms
+
+  if [[ "$valor" =~ \{\{ADMIN_EMAIL\}\} ]]; then
+    local ae="${HEFESTO_ADMIN_EMAIL:-}"
+    if [ -z "$ae" ]; then error "$var: HEFESTO_ADMIN_EMAIL no definido"; return 1; fi
+    if ! printf '%s' "$ae" | grep -qE '^[^@ ]+@[^@ ]+\.[a-z]{2,}$'; then
+      error "$var: HEFESTO_ADMIN_EMAIL con formato inválido"; return 1
+    fi
+    valor="${valor//\{\{ADMIN_EMAIL\}\}/${ae}}"
+  fi
+
+  if [[ "$valor" =~ \{\{SUPABASE_SECRET_KEY\}\} ]]; then
+    local kf="${SUPABASE_KEY_FILE:-$HOME/.config/hefesto/supabase-service-key}" perms contenido
     [ -f "$kf" ] || { error "falta el archivo $kf"; return 1; }
     perms="$(stat -c %a "$kf")"
     [ "$((8#${perms} & 077))" -eq 0 ] || { error "$kf debe ser 0600"; return 1; }
-    local contenido; contenido="$(cat "$kf")"
+    contenido="$(cat "$kf")"
     valor="${valor//\{\{SUPABASE_SECRET_KEY\}\}/${contenido}}"
-  done
+  fi
+
+  if [[ "$valor" =~ \{\{SUPABASE_ANON_KEY\}\} ]]; then
+    local akf="${SUPABASE_ANON_KEY_FILE:-$HOME/.config/hefesto/supabase-anon-key}" aperms acontenido
+    [ -f "$akf" ] || { error "falta el archivo $akf"; return 1; }
+    aperms="$(stat -c %a "$akf")"
+    [ "$((8#${aperms} & 077))" -eq 0 ] || { error "$akf debe ser 0600"; return 1; }
+    acontenido="$(cat "$akf")"
+    valor="${valor//\{\{SUPABASE_ANON_KEY\}\}/${acontenido}}"
+  fi
   printf '%s' "$valor"
 }
 
@@ -89,6 +108,7 @@ render_env() {
   [ -f "$plantilla" ] || { error "no existe plantilla $plantilla"; return 1; }
 
   local pares=()
+  local pendientes=()
   local linea raw var valor
   while IFS= read -r linea || [ -n "$linea" ]; do
     # quitar comentarios finales y espacios sobrantes
@@ -101,7 +121,9 @@ render_env() {
       error "clave inválida en $plantilla: $linea"; return 1
     fi
     if [[ "$valor" == *\{\{PENDIENTE\}\}* ]]; then
-      error "$var en $slug marcado PENDIENTE"; return 1
+      pendientes+=("$var")
+      printf 'pendiente: %s=%s\n' "$slug" "$var" >&2
+      continue
     fi
     if ! expandir_marcador "$slug" "$var" "$valor" >/dev/null; then
       return 1
@@ -110,6 +132,10 @@ render_env() {
     resuelto="$(expandir_marcador "$slug" "$var" "$valor")" || return 1
     pares+=("$var" "$resuelto")
   done < "$plantilla"
+
+  if [ "${#pendientes[@]}" -gt 0 ]; then
+    return 1
+  fi
 
   if [ "${#pares[@]}" -eq 0 ]; then
     echo '{"data":[]}'; return 0

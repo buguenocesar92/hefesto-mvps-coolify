@@ -8,14 +8,12 @@ setup() {
   export APPS_TSV="$BATS_TEST_TMPDIR/apps.tsv"
   export ESTADO_DIR="$HEFESTO_MVPS_ESTADO"
   mkdir -p "$ESTADO_DIR"
-  cat > "$APPS_TMV" 2>/dev/null || true
   : > "$ESTADO_DIR/apps.tsv"
   # App con dominio: responde 200
   printf 'liviana\tuuid-1\tDESPLEGADA\thttps://liviana.hefesto-studio.cl\t2026-01-01\n' >> "$ESTADO_DIR/apps.tsv"
   # App con dominio: responde 502 -> cae
   printf 'caida\tuuid-2\tDESPLEGADA\thttps://caida.hefesto-studio.cl\t2026-01-01\n' >> "$ESTADO_DIR/apps.tsv"
-  responder_codigo() { printf '%s' "$3" > "$STUB_DIR/resp/$1_$(printf '%s' "$2" | tr '/?&=' '____').code${4:-}"; }
-  responder_codigo() { printf '%s' "$3" > "$STUB_DIR/resp/$1_$(printf '%s' "$2" | tr '/?&=' '____').code"; }
+  # Códigos HTTP que sirven las URLs (el stub devuelve el código desde .code).
   responder_codigo GET https://liviana.hefesto-studio.cl/ 200
   responder_codigo GET https://caida.hefesto-studio.cl/ 502
 }
@@ -24,8 +22,9 @@ setup() {
   run "$RAIZ/verificar.sh"
   echo "status=$status output=$output"
   [ "$status" -eq 0 ]
+  # La tabla incluye la columna `estado` con `responde` o `cae`.
+  awk -F'\t' '$1=="liviana" && $3=="200" && $5=="responde" {ok=1} END{exit !ok}' "$ESTADO_DIR/verificacion.tsv"
+  awk -F'\t' '$1=="caida" && $3=="502" && $5=="cae" {ok=1} END{exit !ok}' "$ESTADO_DIR/verificacion.tsv"
   [[ "$output" == *"responde"* ]]
   [[ "$output" == *"cae"* ]]
-  [ -f "$ESTADO_DIR/verificacion.tsv" ]
-  grep -q '^liviana	https' "$ESTADO_DIR/verificacion.tsv"
 }
