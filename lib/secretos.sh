@@ -61,6 +61,19 @@ print(base64.b64encode(s+hashlib.pbkdf2_hmac("sha256",p.encode(),s,100000)).deco
   printf '%s' "$valor"
 }
 
+# obtener_resend_key [archivo]: imprime a stdout la primera clave de Resend que empiece por `re_`
+# del archivo (por defecto $RESEND_ENV_FILE o $HOME/.config/hefesto/resend.env). Acepta tanto
+# `RESEND_API_KEY=re_xxx` como una variable cualquiera `OTRA=re_xxx`; ignora comentarios y líneas
+# vacías. Sale 1 si no encuentra ninguna.
+obtener_resend_key() {
+  local rf="${1:-${RESEND_ENV_FILE:-$HOME/.config/hefesto/resend.env}}"
+  local rkey
+  rkey="$(grep -E '^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*[[:space:]]*=[[:space:]]*re_' "$rf" 2>/dev/null \
+    | head -1 | sed -E 's/^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*[[:space:]]*=[[:space:]]*//')" || true
+  if [ -z "$rkey" ]; then return 1; fi
+  printf '%s' "$rkey"
+}
+
 # expandir_marcador <slug> <VAR> <valor>: reemplaza los marcadores conocidos en el valor.
 expandir_marcador() {
   local slug="$1" var="$2" valor="$3" db_slug
@@ -116,11 +129,9 @@ expandir_marcador() {
   if [[ "$valor" =~ \{\{RESEND_API_KEY\}\} ]]; then
     local rf="${RESEND_ENV_FILE:-$HOME/.config/hefesto/resend.env}" rkey
     [ -f "$rf" ] || { error "no encuentro la API key de Resend en $rf"; return 1; }
-    rkey="$(grep -E '^RESEND_API_KEY=' "$rf" | head -1 | cut -d= -f2- || true)"
-    if [ -z "$rkey" ]; then
-      rkey="$(grep -E '^[A-Za-z_][A-Za-z0-9_]*=re_' "$rf" | head -1 | cut -d= -f2- || true)"
+    if ! rkey="$(obtener_resend_key "$rf")"; then
+      error "no encuentro la API key de Resend en $rf"; return 1
     fi
-    [ -n "$rkey" ] || { error "no encuentro la API key de Resend en $rf"; return 1; }
     valor="${valor//\{\{RESEND_API_KEY\}\}/${rkey}}"
   fi
 

@@ -179,3 +179,17 @@ assert hashlib.pbkdf2_hmac("sha256",p.encode(),b[:32],100000)==b[32:]'
   [[ "$h" == '$2y$12$'* ]]
   grep -qE '^NR_ADMIN_PASSWORD=[A-Za-z0-9]{24}$' "$HEFESTO_MVPS_ESTADO/demo.env"
 }
+
+@test "obtener_resend_key lee RESEND_API_KEY=re_..., OTRA=re_..., ignora comentarios y lineas vacias (7.4)" {
+  f="$BATS_TEST_TMPDIR/resend.env"
+  # Caso 1: clave explícita con RESEND_API_KEY
+  printf '# comentario con re_zzz ignorado\nRESEND_API_KEY=re_yyy_explicita\n' > "$f"
+  [ "$(obtener_resend_key "$f")" = "re_yyy_explicita" ]
+  # Caso 2: la clave viene como OTRA=re_xxx (fallback)
+  printf '# otro comentario\nOTRA=re_xxx_otra\n' > "$f"
+  [ "$(obtener_resend_key "$f")" = "re_xxx_otra" ]
+  # Caso 3: comentario con re_ no cuenta
+  printf '# re_zzz_en_comentario\nLINEA_SIN_RE=valor\n' > "$f"
+  run --separate-stderr obtener_resend_key "$f"
+  [ "$status" -ne 0 ]
+}
