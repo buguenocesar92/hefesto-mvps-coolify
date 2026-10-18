@@ -240,7 +240,8 @@ for slug in "${apps_iter[@]}"; do
       '{project_uuid:$p, server_uuid:$s, environment_name:"production",
         git_repository:("https://github.com/buguenocesar92/" + $r),
         git_branch:$b, build_pack:"dockercompose", base_directory:$bd,
-        docker_compose_location:$cf, name:$n, instant_deploy:false}' > "$body"
+        docker_compose_location:$cf, name:$n, instant_deploy:false,
+        connect_to_docker_network:true}' > "$body"
     app_resp="$(api POST /applications/public "$body")" || { error "no se pudo crear app $slug"; rm -f "$body"; registrar_estado "$slug" "" "ERROR_CREAR"; fallos=$((fallos + 1)); continue; }
     rm -f "$body"
     app_uuid="$(printf '%s' "$app_resp" | jq -r '.uuid')"

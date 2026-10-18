@@ -65,14 +65,25 @@ print(base64.b64encode(s+hashlib.pbkdf2_hmac("sha256",p.encode(),s,100000)).deco
 expandir_marcador() {
   local slug="$1" var="$2" valor="$3" db_slug
   db_slug="${slug//-/_}"
+  # Si existe $ESTADO_DIR/supabase.uuid, los hosts internos usan el uuid real del servicio.
+  local supa_uuid="" db_host_real="supabase-db" kong_url_real="http://supabase-kong:8000"
+  if [ -n "${SUPABASE_UUID_FILE:-}" ] && [ -f "$SUPABASE_UUID_FILE" ]; then
+    supa_uuid="$(cat "$SUPABASE_UUID_FILE" 2>/dev/null || true)"
+  elif [ -f "${ESTADO_DIR:-/nada}/supabase.uuid" ]; then
+    supa_uuid="$(cat "${ESTADO_DIR:-/nada}/supabase.uuid" 2>/dev/null || true)"
+  fi
+  if [ -n "$supa_uuid" ]; then
+    db_host_real="supabase-db-$supa_uuid"
+    kong_url_real="http://supabase-kong-$supa_uuid:8000"
+  fi
   valor="${valor//\{\{HOST\}\}/${slug}.$DOMINIO_BASE}"
   while [[ "$valor" =~ \{\{HOST:([a-z0-9-]+)\}\} ]]; do
     valor="${valor//"${BASH_REMATCH[0]}"/"${BASH_REMATCH[1]}.$DOMINIO_BASE"}"
   done
   valor="${valor//\{\{URL\}\}/https://${slug}.$DOMINIO_BASE}"
-  valor="${valor//\{\{DB_HOST\}\}/${SUPABASE_DB_HOST:-supabase-db}}"
+  valor="${valor//\{\{DB_HOST\}\}/${SUPABASE_DB_HOST:-$db_host_real}}"
   valor="${valor//\{\{DB_NAME\}\}/mvp_${db_slug}}"
-  valor="${valor//\{\{SUPABASE_URL\}\}/${SUPABASE_INTERNAL_URL:-http://supabase-kong:8000}}"
+  valor="${valor//\{\{SUPABASE_URL\}\}/${SUPABASE_INTERNAL_URL:-$kong_url_real}}"
 
   while [[ "$valor" =~ \{\{DB_PASSWORD\}\} ]]; do
     local dbp; dbp="$(secreto "$slug" DB_PASSWORD hex64)" || return 1
