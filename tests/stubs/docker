@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# stub para docker compose config --format json.
+# Devuelve un JSON de un servicio que refleja los flags problemáticos que estén en
+# el compose pasado con `-f <archivo>`, para que validar-compose.sh rechace lo correcto
+# en los tests. Cuando el archivo no existe, devuelve un compose válido.
+archivo=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -f) archivo="$2"; shift 2 ;;
+    config|--project-directory|--no-interpolate|--format|json|compose|-*) shift ;;
+    *) shift ;;
+  esac
+done
+priv=""
+sock=""
+if [ -n "$archivo" ] && [ -f "$archivo" ]; then
+  grep -q "privileged: true" "$archivo" && priv=',"privileged":true'
+  grep -q 'docker.sock' "$archivo" && sock=',"volumes":["/var/run/docker.sock:/var/run/docker.sock"]'
+fi
+printf '{"services":{"web":{"image":"nginx"%s%s}}}\n' "$priv" "$sock"
